@@ -1,0 +1,505 @@
+"use client";
+
+import { useCallback, useRef, useState } from "react";
+
+export type ConnectionStatus = "idle" | "connecting" | "active" | "reconnecting" | "error";
+
+export interface Message {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  interrupted?: boolean;
+}
+
+const WS_EVENTS = {
+  SESSION_UPDATED: "session.updated",
+  SPEECH_STARTED: "input_audio_buffer.speech_started",
+  RESPONSE_CREATED: "response.created",
+  AUDIO_DELTA: "response.output_audio.delta",
+  TRANSCRIPT_DELTA: "response.output_audio_transcript.delta",
+  RESPONSE_DONE: "response.done",
+  TRANSCRIPTION_DONE: "conversation.item.input_audio_transcription.completed",
+  ERROR: "error",
+} as const;
+
+function audioToBase64(int16Array: Int16Array): string {
+  const bytes = new Uint8Array(
+    int16Array.buffer,
+    int16Array.byteOffset,
+    int16Array.byteLength
+  );
+  const CHUNK = 0x2000;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    parts.push(String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK))));
+  }
+  return btoa(parts.join(""));
+}
+
+const MAX_BUFFER_SAMPLES = 240_000;
+
+interface UseVoiceSessionOpts {
+  sessionId: string;
+  onTurnPersisted?: (speaker: string, text: string) => void;
+}
+
+export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionOpts) {
+  const [status, setStatus] = useState<ConnectionStatus>("idle");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [characterName, setCharacterName] = useState<string>("");
+
+  const statusRef = useRef<ConnectionStatus>("idle");
+  const updateStatus = useCallback((s: ConnectionStatus) => {
+    statusRef.current = s;
+    setStatus(s);
+  }, []);
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const nextPlayTimeRef = useRef<number>(0);
+  const queuedSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const micBufferRef = useRef<Int16Array[]>([]);
+  const micBufferSamplesRef = useRef<number>(0);
+  const isSessionReadyRef = useRef<boolean>(false);
+  const currentResponseIdRef = useRef<string | null>(null);
+  const intentionalDisconnectRef = useRef<boolean>(false);
+  const tokenRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+
+  const interruptPlayback = useCallback(() => {
+    for (const src of queuedSourcesRef.current) {
+      try { src.stop(); } catch { /* already stopped */ }
+    }
+    queuedSourcesRef.current = [];
+    nextPlayTimeRef.current = 0;
+  }, []);
+
+  const playPcmChunk = useCallback((base64: string) => {
+    const audioCtx = audioCtxRef.current;
+    if (!audioCtx) return;
+
+    const raw = atob(base64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    const int16 = new Int16Array(bytes.buffer);
+    const float32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+
+    const buf = audioCtx.createBuffer(1, float32.length, 24000);
+    buf.getChannelData(0).set(float32);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(audioCtx.destination);
+
+    const now = audioCtx.currentTime;
+    const startAt = Math.max(now, nextPlayTimeRef.current);
+    src.start(startAt);
+    nextPlayTimeRef.current = startAt + buf.duration;
+    queuedSourcesRef.current.push(src);
+    src.onended = () => {
+      const idx = queuedSourcesRef.current.indexOf(src);
+      if (idx !== -1) queuedSourcesRef.current.splice(idx, 1);
+    };
+  }, []);
+
+  const sendAudio = useCallback((int16Data: Int16Array) => {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "input_audio_buffer.append",
+          audio: audioToBase64(int16Data),
+        })
+      );
+    }
+  }, []);
+
+  const fetchToken = useCallback(async (): Promise<{ value: string; expires_at: number }> => {
+    const res = await fetch("/api/token", { method: "POST" });
+    if (!res.ok) throw new Error(`Token fetch failed: ${await res.text()}`);
+    return res.json();
+  }, []);
+
+  const fetchSessionContext = useCallback(async (): Promise<{
+    instructions: string;
+    voiceId: string;
+    characterName: string;
+    initialMessage: string | null;
+  }> => {
+    const res = await fetch(`/api/session/${sessionIdRef.current}/context`);
+    if (!res.ok) throw new Error(`Context fetch failed: ${await res.text()}`);
+    return res.json();
+  }, []);
+
+  const persistTurnBackground = useCallback((speaker: string, text: string) => {
+    // Fire-and-forget turn persistence
+    fetch(`/api/session/${sessionIdRef.current}/turns`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speaker, text }),
+    }).then(() => {
+      onTurnPersisted?.(speaker, text);
+    }).catch(() => {
+      // Non-fatal: turn will be in client transcript even if persist fails
+    });
+  }, [onTurnPersisted]);
+
+  const scheduleTokenRefresh = useCallback((expiresAt: number) => {
+    if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+    const msUntilExpiry = expiresAt * 1000 - Date.now();
+    const refreshIn = Math.max(0, msUntilExpiry - 5000);
+    tokenRefreshTimerRef.current = setTimeout(async () => {
+      try {
+        const { expires_at } = await fetchToken();
+        scheduleTokenRefresh(expires_at);
+      } catch {
+        // Session will expire, user will see disconnect
+      }
+    }, refreshIn);
+  }, [fetchToken]);
+
+  const handleWsMessage = useCallback((data: string) => {
+    const event = JSON.parse(data);
+
+    switch (event.type) {
+      case WS_EVENTS.SESSION_UPDATED:
+        if (!isSessionReadyRef.current) {
+          isSessionReadyRef.current = true;
+          for (const chunk of micBufferRef.current) {
+            sendAudio(chunk);
+          }
+          micBufferRef.current = [];
+          micBufferSamplesRef.current = 0;
+        }
+        break;
+
+      case WS_EVENTS.SPEECH_STARTED:
+        interruptPlayback();
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: "response.cancel" }));
+        }
+        if (currentResponseIdRef.current) {
+          const id = currentResponseIdRef.current;
+          setMessages((prev) =>
+            prev.map((m) => (m.id === id ? { ...m, interrupted: true } : m))
+          );
+          currentResponseIdRef.current = null;
+        }
+        break;
+
+      case WS_EVENTS.RESPONSE_CREATED:
+        currentResponseIdRef.current = event.response.id;
+        setMessages((prev) => [
+          ...prev,
+          { id: event.response.id, role: "assistant", text: "" },
+        ]);
+        break;
+
+      case WS_EVENTS.AUDIO_DELTA:
+        playPcmChunk(event.delta);
+        break;
+
+      case WS_EVENTS.TRANSCRIPT_DELTA:
+        if (currentResponseIdRef.current) {
+          const id = currentResponseIdRef.current;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === id ? { ...m, text: m.text + event.delta } : m
+            )
+          );
+        }
+        break;
+
+      case WS_EVENTS.RESPONSE_DONE: {
+        // Persist assistant turn
+        const doneId = currentResponseIdRef.current;
+        if (doneId) {
+          setMessages((prev) => {
+            const msg = prev.find((m) => m.id === doneId);
+            if (msg && msg.text) {
+              persistTurnBackground("assistant", msg.text);
+            }
+            return prev;
+          });
+        }
+        currentResponseIdRef.current = null;
+        break;
+      }
+
+      case WS_EVENTS.TRANSCRIPTION_DONE: {
+        const transcript = event.transcript;
+        setMessages((prev) => [
+          ...prev,
+          { id: `user-${Date.now()}`, role: "user", text: transcript },
+        ]);
+        // Persist user turn
+        if (transcript) {
+          persistTurnBackground("user", transcript);
+        }
+        break;
+      }
+
+      case WS_EVENTS.ERROR:
+        setError(event.message ?? "xAI error");
+        break;
+    }
+  }, [interruptPlayback, playPcmChunk, sendAudio, persistTurnBackground]);
+
+  const connect = useCallback(async () => {
+    if (statusRef.current === "active" || statusRef.current === "connecting") return;
+    setError(null);
+    intentionalDisconnectRef.current = false;
+    updateStatus("connecting");
+
+    const audioCtx = new AudioContext({ sampleRate: 24000 });
+    audioCtxRef.current = audioCtx;
+    if (audioCtx.state === "suspended") await audioCtx.resume();
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 24000,
+        },
+      });
+    } catch (err: unknown) {
+      const domErr = err as DOMException;
+      if (domErr.name === "NotAllowedError") {
+        setError("Microphone access denied");
+      } else if (domErr.name === "NotFoundError") {
+        setError("No microphone found");
+      } else {
+        setError("Microphone error");
+      }
+      updateStatus("error");
+      return;
+    }
+    micStreamRef.current = stream;
+
+    await audioCtx.audioWorklet.addModule("/pcm-processor-worklet.js");
+    const source = audioCtx.createMediaStreamSource(stream);
+    const workletNode = new AudioWorkletNode(audioCtx, "pcm-processor");
+    workletNodeRef.current = workletNode;
+    source.connect(workletNode);
+
+    stream.getAudioTracks()[0].onended = () => {
+      if (!intentionalDisconnectRef.current) {
+        setError("Microphone disconnected");
+        disconnect();
+      }
+    };
+
+    isSessionReadyRef.current = false;
+    micBufferRef.current = [];
+    micBufferSamplesRef.current = 0;
+
+    workletNode.port.onmessage = (evt) => {
+      const int16Data = evt.data as Int16Array;
+      if (isSessionReadyRef.current) {
+        sendAudio(int16Data);
+      } else {
+        if (micBufferSamplesRef.current + int16Data.length <= MAX_BUFFER_SAMPLES) {
+          micBufferRef.current.push(int16Data);
+          micBufferSamplesRef.current += int16Data.length;
+        }
+      }
+    };
+
+    // Fetch context and token in parallel
+    let tokenValue: string;
+    let tokenExpiresAt: number;
+    let contextData: Awaited<ReturnType<typeof fetchSessionContext>>;
+    try {
+      const [tokenResult, ctx] = await Promise.all([
+        fetchToken(),
+        fetchSessionContext(),
+      ]);
+      tokenValue = tokenResult.value;
+      tokenExpiresAt = tokenResult.expires_at;
+      contextData = ctx;
+      setCharacterName(ctx.characterName);
+    } catch {
+      setError("Failed to get session token or context");
+      updateStatus("error");
+      return;
+    }
+
+    // If character has an initial message and no turns yet, show it
+    if (contextData.initialMessage && messages.length === 0) {
+      setMessages([{
+        id: `initial-${Date.now()}`,
+        role: "assistant",
+        text: contextData.initialMessage,
+      }]);
+      persistTurnBackground("assistant", contextData.initialMessage);
+    }
+
+    const ws = new WebSocket("wss://api.x.ai/v1/realtime", [
+      `xai-client-secret.${tokenValue}`,
+    ]);
+    wsRef.current = ws;
+
+    const connectTimeout = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) {
+        ws.close();
+        setError("Connection timeout");
+        updateStatus("error");
+      }
+    }, 10_000);
+
+    ws.onopen = () => {
+      clearTimeout(connectTimeout);
+      updateStatus("active");
+      ws.send(
+        JSON.stringify({
+          type: "session.update",
+          session: {
+            voice: contextData.voiceId,
+            instructions: contextData.instructions,
+            turn_detection: { type: "server_vad" },
+            input_audio_transcription: { model: "grok-2-audio" },
+            audio: {
+              input: { format: { type: "audio/pcm", rate: 24000 } },
+              output: { format: { type: "audio/pcm", rate: 24000 } },
+            },
+          },
+        })
+      );
+      scheduleTokenRefresh(tokenExpiresAt);
+    };
+
+    ws.onmessage = ({ data }) => handleWsMessage(data);
+
+    ws.onerror = () => {
+      if (!intentionalDisconnectRef.current) {
+        setError("WebSocket error");
+        updateStatus("error");
+      }
+    };
+
+    ws.onclose = () => {
+      clearTimeout(connectTimeout);
+      if (!intentionalDisconnectRef.current) {
+        // Auto-reconnect on TTL expiry
+        updateStatus("reconnecting");
+        setTimeout(() => {
+          if (!intentionalDisconnectRef.current) {
+            reconnect();
+          }
+        }, 1000);
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchSessionContext, fetchToken, handleWsMessage, scheduleTokenRefresh, sendAudio, updateStatus]);
+
+  const reconnect = useCallback(async () => {
+    // Clean up old connection without clearing messages
+    wsRef.current?.close();
+    wsRef.current = null;
+
+    updateStatus("reconnecting");
+
+    try {
+      const [{ value, expires_at }, contextData] = await Promise.all([
+        fetchToken(),
+        fetchSessionContext(),
+      ]);
+
+      const ws = new WebSocket("wss://api.x.ai/v1/realtime", [
+        `xai-client-secret.${value}`,
+      ]);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        updateStatus("active");
+        isSessionReadyRef.current = false;
+        ws.send(
+          JSON.stringify({
+            type: "session.update",
+            session: {
+              voice: contextData.voiceId,
+              instructions: contextData.instructions,
+              turn_detection: { type: "server_vad" },
+              input_audio_transcription: { model: "grok-2-audio" },
+              audio: {
+                input: { format: { type: "audio/pcm", rate: 24000 } },
+                output: { format: { type: "audio/pcm", rate: 24000 } },
+              },
+            },
+          })
+        );
+        scheduleTokenRefresh(expires_at);
+      };
+
+      ws.onmessage = ({ data }) => handleWsMessage(data);
+      ws.onerror = () => updateStatus("error");
+      ws.onclose = () => {
+        if (!intentionalDisconnectRef.current) {
+          updateStatus("reconnecting");
+          setTimeout(() => reconnect(), 1000);
+        }
+      };
+    } catch {
+      setError("Failed to reconnect");
+      updateStatus("error");
+    }
+  }, [fetchSessionContext, fetchToken, handleWsMessage, scheduleTokenRefresh, updateStatus]);
+
+  const disconnect = useCallback(() => {
+    intentionalDisconnectRef.current = true;
+    if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+    interruptPlayback();
+    wsRef.current?.close();
+    wsRef.current = null;
+    workletNodeRef.current?.disconnect();
+    workletNodeRef.current = null;
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+    isSessionReadyRef.current = false;
+    currentResponseIdRef.current = null;
+    micBufferRef.current = [];
+    micBufferSamplesRef.current = 0;
+    updateStatus("idle");
+  }, [interruptPlayback, updateStatus]);
+
+  const sendText = useCallback((text: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    setMessages((prev) => [
+      ...prev,
+      { id: `user-text-${Date.now()}`, role: "user", text },
+    ]);
+    persistTurnBackground("user", text);
+    ws.send(
+      JSON.stringify({
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text }],
+        },
+      })
+    );
+    ws.send(JSON.stringify({ type: "response.create" }));
+  }, [persistTurnBackground]);
+
+  return {
+    connect,
+    disconnect,
+    reconnect,
+    sendText,
+    status,
+    messages,
+    error,
+    characterName,
+  };
+}
