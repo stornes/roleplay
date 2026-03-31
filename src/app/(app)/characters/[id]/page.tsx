@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { deleteCharacter } from "@/actions/characters";
+import { createSessionAction } from "@/actions/sessions";
 import { Pencil, Trash2, Play } from "lucide-react";
 
 const voiceLabels: Record<string, string> = {
@@ -28,6 +29,7 @@ export default async function CharacterDetailPage({
   if (!character) notFound();
 
   const deleteWithId = deleteCharacter.bind(null, id);
+  const startSession = createSessionAction.bind(null, id);
 
   return (
     <div className="max-w-2xl">
@@ -43,13 +45,15 @@ export default async function CharacterDetailPage({
           )}
         </div>
         <div className="flex gap-2">
-          <Link
-            href={`/sessions?character=${id}`}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
-          >
-            <Play className="h-4 w-4" />
-            Start Session
-          </Link>
+          <form action={startSession}>
+            <button
+              type="submit"
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+            >
+              <Play className="h-4 w-4" />
+              Start Session
+            </button>
+          </form>
           <Link
             href={`/characters/${id}/edit`}
             className="inline-flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700"

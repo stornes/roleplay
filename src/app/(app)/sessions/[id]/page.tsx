@@ -1,16 +1,40 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useVoiceSession } from "@/hooks/use-voice-session";
 import { SessionPanel } from "@/components/session-panel";
 import { VoiceControls } from "@/components/voice-controls";
 import { ArrowLeft, Square } from "lucide-react";
+import type { Message } from "@/hooks/use-voice-session";
 
 export default function LiveSessionPage() {
   const params = useParams();
   const router = useRouter();
   const sessionId = params.id as string;
+  const [initialMessage, setInitialMessage] = useState<Message | null>(null);
+  const [loadedCharacterName, setLoadedCharacterName] = useState("");
+
+  // Fetch session context on mount to get initial message and character name
+  useEffect(() => {
+    fetch(`/api/session/${sessionId}/context`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.characterName) {
+          setLoadedCharacterName(data.characterName);
+        }
+        if (data.initialMessage) {
+          setInitialMessage({
+            id: `initial-${Date.now()}`,
+            role: "assistant",
+            text: data.initialMessage,
+          });
+        }
+      })
+      .catch(() => {
+        // Non-fatal
+      });
+  }, [sessionId]);
 
   const handleTurnPersisted = useCallback((_speaker: string, _text: string) => {
     // Could trigger STM compression check here in the future
@@ -25,6 +49,14 @@ export default function LiveSessionPage() {
     error,
     characterName,
   } = useVoiceSession({ sessionId, onTurnPersisted: handleTurnPersisted });
+
+  // Combine initial message with session messages
+  const displayName = characterName || loadedCharacterName || "Session";
+  const allMessages = initialMessage && messages.length === 0
+    ? [initialMessage]
+    : initialMessage && messages[0]?.id !== initialMessage.id
+      ? [initialMessage, ...messages]
+      : messages;
 
   const handleEndSession = async () => {
     disconnect();
@@ -52,10 +84,10 @@ export default function LiveSessionPage() {
           </button>
           <div>
             <h1 className="text-lg font-semibold text-zinc-100">
-              {characterName || "Session"}
+              {displayName}
             </h1>
             <p className="text-xs text-zinc-500">
-              {messages.length} messages
+              {allMessages.length} messages
             </p>
           </div>
         </div>
@@ -70,8 +102,8 @@ export default function LiveSessionPage() {
 
       {/* Transcript */}
       <SessionPanel
-        messages={messages}
-        characterName={characterName}
+        messages={allMessages}
+        characterName={displayName}
       />
 
       {/* Voice controls + text input */}

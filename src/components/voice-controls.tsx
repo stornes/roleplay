@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Mic, MicOff, Send, Loader2 } from "lucide-react";
 import type { ConnectionStatus } from "@/hooks/use-voice-session";
 
@@ -28,13 +28,30 @@ export function VoiceControls({
   error,
 }: VoiceControlsProps) {
   const [textInput, setTextInput] = useState("");
+  const pendingTextRef = useRef<string | null>(null);
   const isActive = status === "active";
   const isLoading = status === "connecting" || status === "reconnecting";
+
+  // Send queued text once connection becomes active
+  useEffect(() => {
+    if (isActive && pendingTextRef.current) {
+      onSendText(pendingTextRef.current);
+      pendingTextRef.current = null;
+    }
+  }, [isActive, onSendText]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = textInput.trim();
-    if (!trimmed || !isActive) return;
+    if (!trimmed) return;
+    if (!isActive) {
+      // Auto-connect on first text send, queue the message
+      onConnect();
+      // Store the text to send after connection establishes
+      pendingTextRef.current = trimmed;
+      setTextInput("");
+      return;
+    }
     onSendText(trimmed);
     setTextInput("");
   };
@@ -92,13 +109,13 @@ export function VoiceControls({
             type="text"
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
-            placeholder={isActive ? "Type a message..." : "Connect voice to chat"}
-            disabled={!isActive}
+            placeholder="Type a message..."
+            disabled={false}
             className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-indigo-600 focus:outline-none focus:ring-1 focus:ring-indigo-600 disabled:opacity-50"
           />
           <button
             type="submit"
-            disabled={!isActive || !textInput.trim()}
+            disabled={isLoading || !textInput.trim()}
             className="flex-shrink-0 w-10 h-10 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white flex items-center justify-center disabled:opacity-50 disabled:hover:bg-indigo-600 transition-colors"
           >
             <Send className="w-4 h-4" />

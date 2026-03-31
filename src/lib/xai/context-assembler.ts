@@ -35,9 +35,10 @@ export async function assembleContext(sessionId: string) {
     throw new Error(`Character not found: ${characterId}`);
   }
 
-  // Fetch user profile for display name
+  // Fetch user profile for display name (first name only for natural conversation)
   const { data: { user } } = await supabase.auth.getUser();
-  const userName = user?.user_metadata?.name || user?.email?.split("@")[0] || "Player";
+  const fullName = user?.user_metadata?.name || user?.email?.split("@")[0] || "Player";
+  const userName = fullName.split(" ")[0];
 
   // Fetch recent turns (STM window, last 20)
   const { data: turns } = await supabase
