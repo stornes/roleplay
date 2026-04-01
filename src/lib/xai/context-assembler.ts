@@ -1,14 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { buildContextEnvelope, estimateTokens, TOKEN_BUDGET } from "./prompt-templates";
+import { buildCastAwareness } from "./turn-router";
 import { searchMemories } from "@/lib/memory/ltm-search";
+import type { Database } from "@/lib/supabase/types";
+
+type Character = Database["public"]["Tables"]["characters"]["Row"];
 
 /**
  * Assemble the full context envelope for a session.
- * Called by GET /api/session/[id]/context before WebSocket connection.
- *
- * Phase 2: Now includes persona, scenario, and LTM results.
+ * Phase 3: Supports multi-character. Optional characterId param to build
+ * context for a specific character (used on character switch).
  */
-export async function assembleContext(sessionId: string) {
+export async function assembleContext(sessionId: string, targetCharacterId?: string) {
   const supabase = await createClient();
 
   // Fetch session
@@ -22,19 +25,25 @@ export async function assembleContext(sessionId: string) {
     throw new Error(`Session not found: ${sessionId}`);
   }
 
-  // Fetch the primary character (first in active_character_ids)
-  const characterId = session.active_character_ids[0];
-  if (!characterId) {
-    throw new Error("No active character in session");
+  // Fetch all active characters
+  const allCharacterIds = session.active_character_ids;
+  if (!allCharacterIds || allCharacterIds.length === 0) {
+    throw new Error("No active characters in session");
   }
 
-  const { data: character, error: charErr } = await supabase
+  const { data: allCharacters } = await supabase
     .from("characters")
     .select("*")
-    .eq("id", characterId)
-    .single();
+    .in("id", allCharacterIds);
 
-  if (charErr || !character) {
+  if (!allCharacters || allCharacters.length === 0) {
+    throw new Error("Characters not found");
+  }
+
+  // Determine which character to build context for
+  const characterId = targetCharacterId || allCharacterIds[0];
+  const character = allCharacters.find((c) => c.id === characterId);
+  if (!character) {
     throw new Error(`Character not found: ${characterId}`);
   }
 
@@ -42,7 +51,6 @@ export async function assembleContext(sessionId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id;
 
-  // Phase 2: Check for persona
   let userName: string;
   let personaDescription: string | undefined;
   let personaAppearance: string | undefined;
@@ -67,7 +75,7 @@ export async function assembleContext(sessionId: string) {
     userName = fullName.split(" ")[0];
   }
 
-  // Phase 2: Check for scenario
+  // Scenario
   let scenarioText: string | undefined;
   if (session.scenario_id) {
     const { data: scenario } = await supabase
@@ -82,6 +90,12 @@ export async function assembleContext(sessionId: string) {
       if (scenario.time_period) parts.push(`Time period: ${scenario.time_period}`);
       scenarioText = parts.join("\n");
     }
+  }
+
+  // Phase 3: Cast awareness (other characters present)
+  let castAwareness: string | undefined;
+  if (allCharacters.length > 1) {
+    castAwareness = buildCastAwareness(character, allCharacters);
   }
 
   // Fetch recent turns (STM window, last 20)
@@ -110,10 +124,9 @@ export async function assembleContext(sessionId: string) {
     trimmedTurns = kept;
   }
 
-  // Phase 2: Search LTM for relevant memories
+  // LTM search
   let ltmResults: string | undefined;
   if (userId && recentTurns.length > 0) {
-    // Use last few turns as the search query
     const searchQuery = recentTurns
       .slice(-3)
       .map((t) => t.text)
@@ -137,17 +150,26 @@ export async function assembleContext(sessionId: string) {
     personaDescription,
     personaAppearance,
     scenarioText,
+    castAwareness,
     ltmResults,
     stmSummary: session.stm_summary,
     recentTurns: trimmedTurns,
     advancedPrompt: session.advanced_prompt,
   });
 
-  // If a scenario is active, generate a scenario-aware opening message
-  // instead of using the character's static initial_message
+  // Generate scenario-aware opening if scenario is active
   let initialMessage = character.initial_message;
   if (scenarioText && process.env.XAI_API_KEY) {
     try {
+      const otherNames = allCharacters
+        .filter((c) => c.id !== character.id)
+        .map((c) => c.chat_name || c.name)
+        .join(", ");
+
+      const castNote = otherNames
+        ? `\nOther characters present: ${otherNames}.`
+        : "";
+
       const res = await fetch("https://api.x.ai/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -159,7 +181,7 @@ export async function assembleContext(sessionId: string) {
           messages: [
             {
               role: "user",
-              content: `You are ${character.name}. ${character.personality}\n\nScenario: ${scenarioText}\n\nThe player "${userName}" has just arrived in this scenario. Write a short opening message (2-4 sentences) in character, set within this specific scenario. Use third-person narration for scene-setting (in italics with *), then dialogue. Do not speak for the player.`,
+              content: `You are ${character.name}. ${character.personality}\n\nScenario: ${scenarioText}${castNote}\n\nThe player "${userName}" has just arrived in this scenario. Write a short opening message (2-4 sentences) in character, set within this specific scenario. Use third-person narration for scene-setting (in italics with *), then dialogue. Do not speak for the player.`,
             },
           ],
           max_tokens: 200,
@@ -170,20 +192,28 @@ export async function assembleContext(sessionId: string) {
       if (res.ok) {
         const data = await res.json();
         const generated = data.choices?.[0]?.message?.content;
-        if (generated) {
-          initialMessage = generated;
-        }
+        if (generated) initialMessage = generated;
       }
     } catch {
-      // Fall back to character's default initial message
+      // Fall back to static
     }
   }
+
+  // Build character info for all active characters (for UI)
+  const castInfo = allCharacters.map((c) => ({
+    id: c.id,
+    name: c.chat_name || c.name,
+    voiceId: c.voice_id,
+  }));
 
   return {
     instructions,
     voiceId: character.voice_id,
+    characterId: character.id,
     characterName: character.chat_name || character.name,
     initialMessage,
     tokenEstimate: estimateTokens(instructions),
+    cast: castInfo,
+    isMultiCharacter: allCharacters.length > 1,
   };
 }

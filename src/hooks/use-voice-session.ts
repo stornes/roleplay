@@ -8,7 +8,15 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   text: string;
+  speakerName?: string;
+  speakerId?: string;
   interrupted?: boolean;
+}
+
+export interface CastMember {
+  id: string;
+  name: string;
+  voiceId: string;
 }
 
 const WS_EVENTS = {
@@ -48,6 +56,9 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [characterName, setCharacterName] = useState<string>("");
+  const [cast, setCast] = useState<CastMember[]>([]);
+  const [currentSpeakerId, setCurrentSpeakerId] = useState<string>("");
+  const currentSpeakerIdRef = useRef<string>("");
 
   const statusRef = useRef<ConnectionStatus>("idle");
   const updateStatus = useCallback((s: ConnectionStatus) => {
@@ -124,13 +135,19 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
     return res.json();
   }, []);
 
-  const fetchSessionContext = useCallback(async (): Promise<{
+  const fetchSessionContext = useCallback(async (charId?: string): Promise<{
     instructions: string;
     voiceId: string;
+    characterId: string;
     characterName: string;
     initialMessage: string | null;
+    cast: CastMember[];
+    isMultiCharacter: boolean;
   }> => {
-    const res = await fetch(`/api/session/${sessionIdRef.current}/context`);
+    const url = charId
+      ? `/api/session/${sessionIdRef.current}/context?characterId=${charId}`
+      : `/api/session/${sessionIdRef.current}/context`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`Context fetch failed: ${await res.text()}`);
     return res.json();
   }, []);
@@ -191,13 +208,21 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
         }
         break;
 
-      case WS_EVENTS.RESPONSE_CREATED:
+      case WS_EVENTS.RESPONSE_CREATED: {
         currentResponseIdRef.current = event.response.id;
+        const speakerChar = cast.find((c) => c.id === currentSpeakerIdRef.current);
         setMessages((prev) => [
           ...prev,
-          { id: event.response.id, role: "assistant", text: "" },
+          {
+            id: event.response.id,
+            role: "assistant",
+            text: "",
+            speakerName: speakerChar?.name,
+            speakerId: currentSpeakerIdRef.current,
+          },
         ]);
         break;
+      }
 
       case WS_EVENTS.AUDIO_DELTA:
         playPcmChunk(event.delta);
@@ -325,6 +350,9 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
       tokenExpiresAt = tokenResult.expires_at;
       contextData = ctx;
       setCharacterName(ctx.characterName);
+      setCast(ctx.cast || []);
+      setCurrentSpeakerId(ctx.characterId || "");
+      currentSpeakerIdRef.current = ctx.characterId || "";
     } catch {
       setError("Failed to get session token or context");
       updateStatus("error");
@@ -471,6 +499,34 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
     updateStatus("idle");
   }, [interruptPlayback, updateStatus]);
 
+  /**
+   * Switch the active character mid-session (Phase 3 multi-character).
+   * Sends a session.update with the new character's voice and instructions.
+   */
+  const switchCharacter = useCallback(async (charId: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    try {
+      const ctx = await fetchSessionContext(charId);
+      setCurrentSpeakerId(charId);
+      currentSpeakerIdRef.current = charId;
+      setCharacterName(ctx.characterName);
+
+      ws.send(
+        JSON.stringify({
+          type: "session.update",
+          session: {
+            voice: ctx.voiceId,
+            instructions: ctx.instructions,
+          },
+        })
+      );
+    } catch {
+      // Non-fatal, keep current character
+    }
+  }, [fetchSessionContext]);
+
   const sendText = useCallback((text: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -479,6 +535,28 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
       { id: `user-text-${Date.now()}`, role: "user", text },
     ]);
     persistTurnBackground("user", text);
+
+    // Phase 3: Simple turn routing for text input
+    // Detect if user addressed a specific character by name
+    if (cast.length > 1) {
+      const lower = text.toLowerCase();
+      for (const member of cast) {
+        const name = member.name.toLowerCase();
+        if (
+          lower.startsWith(`${name},`) ||
+          lower.startsWith(`${name} `) ||
+          lower.includes(`talk to ${name}`) ||
+          lower.includes(`hey ${name}`) ||
+          lower.includes(`@${name}`)
+        ) {
+          if (member.id !== currentSpeakerIdRef.current) {
+            switchCharacter(member.id);
+          }
+          break;
+        }
+      }
+    }
+
     ws.send(
       JSON.stringify({
         type: "conversation.item.create",
@@ -490,16 +568,19 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
       })
     );
     ws.send(JSON.stringify({ type: "response.create" }));
-  }, [persistTurnBackground]);
+  }, [persistTurnBackground, cast, switchCharacter]);
 
   return {
     connect,
     disconnect,
     reconnect,
     sendText,
+    switchCharacter,
     status,
     messages,
     error,
     characterName,
+    cast,
+    currentSpeakerId,
   };
 }

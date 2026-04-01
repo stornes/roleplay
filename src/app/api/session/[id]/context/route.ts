@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { assembleContext } from "@/lib/xai/context-assembler";
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: sessionId } = await params;
@@ -14,8 +14,12 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Optional: specify which character to build context for (multi-character)
+  const url = new URL(request.url);
+  const characterId = url.searchParams.get("characterId") || undefined;
+
   try {
-    const context = await assembleContext(sessionId);
+    const context = await assembleContext(sessionId, characterId);
     return NextResponse.json(context);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to assemble context";

@@ -11,6 +11,7 @@ interface ScenarioFormData {
   time_period?: string;
   setting?: string;
   visibility: Visibility;
+  default_cast?: string[];
 }
 
 export async function createScenario(data: ScenarioFormData) {
@@ -27,7 +28,7 @@ export async function createScenario(data: ScenarioFormData) {
     scenario_description: data.scenario_description,
     time_period: data.time_period || null,
     setting: data.setting || null,
-    default_cast: [],
+    default_cast: data.default_cast ?? [],
     visibility: data.visibility,
   });
 
@@ -52,6 +53,7 @@ export async function updateScenario(id: string, data: ScenarioFormData) {
       scenario_description: data.scenario_description,
       time_period: data.time_period || null,
       setting: data.setting || null,
+      default_cast: data.default_cast ?? [],
       visibility: data.visibility,
     })
     .eq("id", id)

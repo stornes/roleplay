@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import type { Visibility, Database } from "@/lib/supabase/types";
 
 type Scenario = Database["public"]["Tables"]["scenarios"]["Row"];
+type Character = Database["public"]["Tables"]["characters"]["Row"];
 
 export interface ScenarioFormData {
   scenario_title: string;
@@ -11,6 +13,7 @@ export interface ScenarioFormData {
   time_period?: string;
   setting?: string;
   visibility: Visibility;
+  default_cast: string[];
 }
 
 interface Props {
@@ -23,6 +26,14 @@ const inputClass =
 
 const labelClass = "block text-sm font-medium text-zinc-300 mb-1.5";
 
+const voiceBadgeColors: Record<string, string> = {
+  ara: "bg-pink-900/50 text-pink-400",
+  rex: "bg-amber-900/50 text-amber-400",
+  sal: "bg-cyan-900/50 text-cyan-400",
+  eve: "bg-violet-900/50 text-violet-400",
+  leo: "bg-emerald-900/50 text-emerald-400",
+};
+
 export function ScenarioForm({ initial, onSubmit }: Props) {
   const [title, setTitle] = useState(initial?.scenario_title ?? "");
   const [description, setDescription] = useState(
@@ -33,7 +44,31 @@ export function ScenarioForm({ initial, onSubmit }: Props) {
   const [visibility, setVisibility] = useState<Visibility>(
     initial?.visibility ?? "private"
   );
+  const [defaultCast, setDefaultCast] = useState<string[]>(
+    initial?.default_cast ?? []
+  );
+  const [characters, setCharacters] = useState<Character[]>([]);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    async function loadCharacters() {
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("characters")
+        .select("*")
+        .order("name");
+      setCharacters(data ?? []);
+    }
+    loadCharacters();
+  }, []);
+
+  function toggleCast(charId: string) {
+    setDefaultCast((prev) =>
+      prev.includes(charId)
+        ? prev.filter((id) => id !== charId)
+        : [...prev, charId]
+    );
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -45,6 +80,7 @@ export function ScenarioForm({ initial, onSubmit }: Props) {
         time_period: timePeriod || undefined,
         setting: setting || undefined,
         visibility,
+        default_cast: defaultCast,
       });
     } finally {
       setSubmitting(false);
@@ -148,6 +184,45 @@ export function ScenarioForm({ initial, onSubmit }: Props) {
             placeholder="e.g. Fantasy Kingdom, Space Station, Tokyo"
           />
         </div>
+      </section>
+
+      {/* Default Cast */}
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold text-zinc-100">Default Cast</h2>
+        <p className="text-xs text-zinc-500">
+          Select characters that will be auto-populated when starting a session
+          with this scenario.
+        </p>
+        {characters.length === 0 ? (
+          <p className="text-sm text-zinc-500">
+            No characters found. Create characters first.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {characters.map((char) => (
+              <label
+                key={char.id}
+                className="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2.5 cursor-pointer hover:border-zinc-700 transition-colors"
+              >
+                <input
+                  type="checkbox"
+                  checked={defaultCast.includes(char.id)}
+                  onChange={() => toggleCast(char.id)}
+                  className="h-4 w-4 rounded border-zinc-700 bg-zinc-800 text-indigo-600 focus:ring-indigo-600 focus:ring-offset-0"
+                />
+                <span className="text-sm text-zinc-200">{char.name}</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-xs ${
+                    voiceBadgeColors[char.voice_id] ??
+                    "bg-zinc-800 text-zinc-400"
+                  }`}
+                >
+                  {char.voice_id}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="space-y-4">

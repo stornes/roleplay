@@ -10,20 +10,37 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { characterId, personaId, scenarioId, advancedPrompt } = body;
+  const { characterId, characterIds, personaId, scenarioId, advancedPrompt, advancedPromptPresetId } = body;
 
-  if (!characterId) {
-    return NextResponse.json({ error: "characterId required" }, { status: 400 });
+  // Support both single characterId (Phase 1-2) and array characterIds (Phase 3)
+  const activeCharacterIds = characterIds || (characterId ? [characterId] : []);
+
+  if (activeCharacterIds.length === 0) {
+    return NextResponse.json({ error: "At least one character required" }, { status: 400 });
+  }
+
+  // If a preset ID is provided, fetch the preset text
+  let resolvedAdvancedPrompt = advancedPrompt || null;
+  if (advancedPromptPresetId) {
+    const { data: preset } = await supabase
+      .from("advanced_prompt_presets")
+      .select("prompt_text")
+      .eq("id", advancedPromptPresetId)
+      .single();
+
+    if (preset?.prompt_text) {
+      resolvedAdvancedPrompt = preset.prompt_text;
+    }
   }
 
   const { data, error } = await supabase
     .from("sessions")
     .insert({
       user_id: user.id,
-      active_character_ids: [characterId],
+      active_character_ids: activeCharacterIds,
       persona_id: personaId || null,
       scenario_id: scenarioId || null,
-      advanced_prompt: advancedPrompt || null,
+      advanced_prompt: resolvedAdvancedPrompt,
       status: "active" as const,
     })
     .select("id")

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, UserCircle, BookOpen, MessageSquare, Brain, Settings, LogOut, Menu, X } from "lucide-react";
+import { Users, UserCircle, BookOpen, Wand2, MessageSquare, Brain, Settings, LogOut, Menu, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/characters", label: "Characters", icon: Users },
   { href: "/personas", label: "Personas", icon: UserCircle },
   { href: "/scenarios", label: "Scenarios", icon: BookOpen },
+  { href: "/prompts", label: "Prompts", icon: Wand2 },
   { href: "/sessions", label: "Sessions", icon: MessageSquare },
   { href: "/memories", label: "Memories", icon: Brain },
   { href: "/settings", label: "Settings", icon: Settings },

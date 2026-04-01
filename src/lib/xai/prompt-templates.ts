@@ -12,6 +12,7 @@ export function buildContextEnvelope(opts: {
   personaDescription?: string;
   personaAppearance?: string;
   scenarioText?: string;
+  castAwareness?: string;
   ltmResults?: string;
   stmSummary?: string | null;
   recentTurns?: { speaker: string; text: string }[];
@@ -23,6 +24,7 @@ export function buildContextEnvelope(opts: {
     personaDescription,
     personaAppearance,
     scenarioText,
+    castAwareness,
     ltmResults,
     stmSummary,
     recentTurns,
@@ -53,6 +55,11 @@ export function buildContextEnvelope(opts: {
     sections.push(`[SCENARIO]\n${scenarioText}`);
   } else if (character.scenario) {
     sections.push(`[SCENARIO]\n${character.scenario}`);
+  }
+
+  // Cast awareness (Phase 3: multi-character)
+  if (castAwareness) {
+    sections.push(castAwareness);
   }
 
   // Advanced prompt (if set on the session)

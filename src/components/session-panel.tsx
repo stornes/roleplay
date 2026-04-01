@@ -7,9 +7,10 @@ interface SessionPanelProps {
   messages: Message[];
   characterName: string;
   userName?: string;
+  isMultiCharacter?: boolean;
 }
 
-export function SessionPanel({ messages, characterName, userName = "You" }: SessionPanelProps) {
+export function SessionPanel({ messages, characterName, userName = "You", isMultiCharacter }: SessionPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -41,7 +42,7 @@ export function SessionPanel({ messages, characterName, userName = "You" }: Sess
             } ${msg.interrupted ? "opacity-60" : ""}`}
           >
             <div className="text-xs font-medium mb-1 opacity-70">
-              {msg.role === "user" ? userName : characterName}
+              {msg.role === "user" ? userName : (msg.speakerName || characterName)}
             </div>
             <p className="text-sm whitespace-pre-wrap leading-relaxed">
               {msg.text || (
