@@ -65,7 +65,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
   const currentSpeakerNameRef = useRef<string>("");
   const [autoChain, setAutoChain] = useState(true);
   const autoChainRef = useRef(true);
-  const chainCooldownRef = useRef(false);
+  const currentResponseTextRef = useRef("");
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -219,6 +219,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
 
       case WS_EVENTS.RESPONSE_CREATED: {
         currentResponseIdRef.current = event.response.id;
+        currentResponseTextRef.current = "";
         const speakerChar = castRef.current.find((c) => c.id === currentSpeakerIdRef.current);
         setMessages((prev) => [
           ...prev,
@@ -240,6 +241,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
       case WS_EVENTS.TRANSCRIPT_DELTA:
         if (currentResponseIdRef.current) {
           const id = currentResponseIdRef.current;
+          currentResponseTextRef.current += event.delta;
           setMessages((prev) =>
             prev.map((m) =>
               m.id === id ? { ...m, text: m.text + event.delta } : m
@@ -249,20 +251,13 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
         break;
 
       case WS_EVENTS.RESPONSE_DONE: {
-        // Persist assistant turn
-        const doneId = currentResponseIdRef.current;
-        let responseText = "";
-        if (doneId) {
-          setMessages((prev) => {
-            const msg = prev.find((m) => m.id === doneId);
-            if (msg && msg.text) {
-              responseText = msg.text;
-              persistTurnBackground("assistant", msg.text);
-            }
-            return prev;
-          });
+        // Persist assistant turn using the ref (avoids React state timing issues)
+        const responseText = currentResponseTextRef.current;
+        if (responseText) {
+          persistTurnBackground("assistant", responseText);
         }
         currentResponseIdRef.current = null;
+        currentResponseTextRef.current = "";
 
         // Server-side auto-chain evaluation (Phase 2 Hybrid)
         if (castRef.current.length > 1 && responseText.length > 0) {
@@ -278,7 +273,19 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
             .then((res) => res.json())
             .then((result) => {
               if (result.shouldChain && result.targetId) {
-                setTimeout(() => {
+                setTimeout(async () => {
+                  // Switch voice and personality before chain response
+                  await switchCharacter(result.targetId);
+                  await new Promise<void>((resolve) => {
+                    isSessionReadyRef.current = false;
+                    const check = () => {
+                      if (isSessionReadyRef.current) return resolve();
+                      setTimeout(check, 100);
+                    };
+                    setTimeout(check, 200);
+                    setTimeout(resolve, 2000);
+                  });
+
                   const ws = wsRef.current;
                   if (ws?.readyState === WebSocket.OPEN) {
                     ws.send(
@@ -296,9 +303,6 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
                         },
                       })
                     );
-                    setCurrentSpeakerId(result.targetId);
-                    currentSpeakerIdRef.current = result.targetId;
-                    currentSpeakerNameRef.current = result.targetName;
                     ws.send(JSON.stringify({ type: "response.create" }));
                   }
                 }, result.delay || 1500);
@@ -616,14 +620,22 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
             currentSpeakerId: currentSpeakerIdRef.current,
           }),
         });
+        if (!routeRes.ok) throw new Error("Route failed");
         const routing = await routeRes.json();
 
         if (routing.switchRequired && routing.nextSpeakerId) {
-          setCurrentSpeakerId(routing.nextSpeakerId);
-          currentSpeakerIdRef.current = routing.nextSpeakerId;
-          if (routing.nextSpeakerName) {
-            currentSpeakerNameRef.current = routing.nextSpeakerName;
-          }
+          // Switch voice and personality on the WebSocket
+          await switchCharacter(routing.nextSpeakerId);
+          // Wait for session.update to be processed
+          await new Promise<void>((resolve) => {
+            isSessionReadyRef.current = false;
+            const check = () => {
+              if (isSessionReadyRef.current) return resolve();
+              setTimeout(check, 100);
+            };
+            setTimeout(check, 200);
+            setTimeout(resolve, 2000); // Timeout fallback
+          });
         }
       } catch {
         // Fallback: no routing, current speaker responds
@@ -645,7 +657,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
       })
     );
     currentWs.send(JSON.stringify({ type: "response.create" }));
-  }, [persistTurnBackground]);
+  }, [persistTurnBackground, switchCharacter]);
 
   const toggleAutoChain = useCallback(() => {
     setAutoChain((prev) => {

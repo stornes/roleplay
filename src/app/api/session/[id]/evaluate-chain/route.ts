@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { detectChainTarget } from "@/lib/xai/turn-router";
 
+// Keep on long-lived Node process (in-memory state requires persistence across requests)
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 /**
  * Phase 2 Hybrid: Server-side auto-chain evaluation.
  * After a character responds, server decides if another character should react.

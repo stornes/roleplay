@@ -8,6 +8,10 @@
 
 import { createClient } from "@/lib/supabase/server";
 
+// Keep on long-lived Node process (SSE streams + in-memory queues need persistence)
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 // In-memory event queues per session
 // In production, use Redis pub/sub or Supabase Realtime
 const sessionQueues = new Map<string, {
@@ -85,17 +89,21 @@ export async function GET(
           queue.lastRead = Date.now();
         }
 
-        // Send keepalive ping every 30s
+      }, 500); // Poll every 500ms
+
+      // Separate keepalive ping every 30s
+      const keepalive = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: keepalive\n\n`));
         } catch {
-          clearInterval(interval);
+          clearInterval(keepalive);
         }
-      }, 500); // Poll every 500ms
+      }, 30000);
 
       // Clean up on close
       request.signal.addEventListener("abort", () => {
         clearInterval(interval);
+        clearInterval(keepalive);
         controller.close();
       });
     },
@@ -104,8 +112,7 @@ export async function GET(
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
+      "Cache-Control": "no-cache, no-transform",
     },
   });
 }

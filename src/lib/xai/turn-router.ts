@@ -56,12 +56,13 @@ export function detectChainTarget(
   currentSpeakerId: string,
   characters: Character[]
 ): Character | null {
-  const lower = responseText.toLowerCase();
   const others = characters.filter((c) => c.id !== currentSpeakerId);
 
   for (const char of others) {
-    const name = (char.chat_name || char.name).toLowerCase();
-    if (lower.includes(name)) {
+    const name = (char.chat_name || char.name);
+    // Word boundary matching to avoid "Art" matching "started"
+    const pattern = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (pattern.test(responseText)) {
       return char;
     }
   }
