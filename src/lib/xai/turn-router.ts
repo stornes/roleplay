@@ -17,17 +17,22 @@ export function detectAddressedCharacter(
   userText: string,
   characters: Character[]
 ): Character | null {
-  const lower = userText.toLowerCase();
+  const lower = userText.toLowerCase().trim();
 
   for (const char of characters) {
     const names = [char.name.toLowerCase()];
     if (char.chat_name) names.push(char.chat_name.toLowerCase());
 
     for (const name of names) {
-      // Direct addressing patterns
       if (
+        lower === name ||
         lower.startsWith(`${name},`) ||
         lower.startsWith(`${name} `) ||
+        lower.endsWith(` ${name}`) ||
+        lower.endsWith(` ${name}?`) ||
+        lower.endsWith(` ${name}!`) ||
+        lower.endsWith(` ${name}.`) ||
+        lower.includes(` ${name},`) ||
         lower.includes(`talk to ${name}`) ||
         lower.includes(`@${name}`) ||
         lower.includes(`hey ${name}`) ||
@@ -36,6 +41,28 @@ export function detectAddressedCharacter(
       ) {
         return char;
       }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Analyze a response to determine if another character should chain in.
+ * Returns the character that was mentioned, or null.
+ */
+export function detectChainTarget(
+  responseText: string,
+  currentSpeakerId: string,
+  characters: Character[]
+): Character | null {
+  const lower = responseText.toLowerCase();
+  const others = characters.filter((c) => c.id !== currentSpeakerId);
+
+  for (const char of others) {
+    const name = (char.chat_name || char.name).toLowerCase();
+    if (lower.includes(name)) {
+      return char;
     }
   }
 

@@ -264,66 +264,49 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
         }
         currentResponseIdRef.current = null;
 
-        // Auto-chain: let another character react if multiple are present
-        if (
-          autoChainRef.current &&
-          !chainCooldownRef.current &&
-          castRef.current.length > 1 &&
-          responseText.length > 0
-        ) {
-          // Check if the response mentions another character by name
-          const others = castRef.current.filter(
-            (c) => c.id !== currentSpeakerIdRef.current
-          );
-          const mentionsOther = others.some((c) =>
-            responseText.toLowerCase().includes(c.name.toLowerCase())
-          );
-
-          // Chain if another character is mentioned, or 30% random chance
-          const shouldChain = mentionsOther || Math.random() < 0.3;
-
-          if (shouldChain) {
-            chainCooldownRef.current = true;
-            // Pick the mentioned character, or a random other
-            const nextChar = mentionsOther
-              ? others.find((c) =>
-                  responseText.toLowerCase().includes(c.name.toLowerCase())
-                )!
-              : others[Math.floor(Math.random() * others.length)];
-
-            // Delay to feel natural (1-3 seconds)
-            const delay = 1000 + Math.random() * 2000;
-            setTimeout(async () => {
-              const ws = wsRef.current;
-              if (ws?.readyState === WebSocket.OPEN) {
-                // Inject a system hint telling the LLM who should speak next
-                ws.send(
-                  JSON.stringify({
-                    type: "conversation.item.create",
-                    item: {
-                      type: "message",
-                      role: "user",
-                      content: [
-                        {
-                          type: "input_text",
-                          text: `[${nextChar.name} reacts to what was just said]`,
+        // Server-side auto-chain evaluation (Phase 2 Hybrid)
+        if (castRef.current.length > 1 && responseText.length > 0) {
+          fetch(`/api/session/${sessionIdRef.current}/evaluate-chain`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              responseText,
+              currentSpeakerId: currentSpeakerIdRef.current,
+              autoChainEnabled: autoChainRef.current,
+            }),
+          })
+            .then((res) => res.json())
+            .then((result) => {
+              if (result.shouldChain && result.targetId) {
+                setTimeout(() => {
+                  const ws = wsRef.current;
+                  if (ws?.readyState === WebSocket.OPEN) {
+                    ws.send(
+                      JSON.stringify({
+                        type: "conversation.item.create",
+                        item: {
+                          type: "message",
+                          role: "user",
+                          content: [
+                            {
+                              type: "input_text",
+                              text: `[${result.targetName} reacts to what was just said]`,
+                            },
+                          ],
                         },
-                      ],
-                    },
-                  })
-                );
-                // Update speaker tracking
-                setCurrentSpeakerId(nextChar.id);
-                currentSpeakerIdRef.current = nextChar.id;
-                currentSpeakerNameRef.current = nextChar.name;
-                ws.send(JSON.stringify({ type: "response.create" }));
+                      })
+                    );
+                    setCurrentSpeakerId(result.targetId);
+                    currentSpeakerIdRef.current = result.targetId;
+                    currentSpeakerNameRef.current = result.targetName;
+                    ws.send(JSON.stringify({ type: "response.create" }));
+                  }
+                }, result.delay || 1500);
               }
-              // Reset cooldown after the chain response completes
-              setTimeout(() => {
-                chainCooldownRef.current = false;
-              }, 5000);
-            }, delay);
-          }
+            })
+            .catch(() => {
+              // Non-fatal: auto-chain simply doesn't fire
+            });
         }
         break;
       }
@@ -622,49 +605,32 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
     ]);
     persistTurnBackground("user", text);
 
-    // Phase 3: Turn routing. Detect if user addressed a specific character.
-    // MUST await the switch before sending response.create so the right
-    // character's voice and personality are active.
-    if (cast.length > 1) {
-      const lower = text.toLowerCase().trim();
-      for (const member of cast) {
-        const name = member.name.toLowerCase();
-        if (
-          lower === name ||
-          lower.startsWith(`${name},`) ||
-          lower.startsWith(`${name} `) ||
-          lower.endsWith(` ${name}`) ||
-          lower.endsWith(` ${name}?`) ||
-          lower.endsWith(` ${name}!`) ||
-          lower.endsWith(` ${name}.`) ||
-          lower.includes(`talk to ${name}`) ||
-          lower.includes(`hey ${name}`) ||
-          lower.includes(`@${name}`) ||
-          lower.includes(` ${name},`)
-        ) {
-          if (member.id !== currentSpeakerIdRef.current) {
-            await switchCharacter(member.id);
-            // Wait for session.update to be processed by xAI server
-            await new Promise<void>((resolve) => {
-              const checkReady = () => {
-                if (isSessionReadyRef.current) {
-                  resolve();
-                } else {
-                  setTimeout(checkReady, 100);
-                }
-              };
-              isSessionReadyRef.current = false;
-              setTimeout(checkReady, 200);
-              // Timeout fallback
-              setTimeout(resolve, 2000);
-            });
+    // Server-side turn routing (Phase 1 Hybrid)
+    if (castRef.current.length > 1) {
+      try {
+        const routeRes = await fetch(`/api/session/${sessionIdRef.current}/route-turn`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text,
+            currentSpeakerId: currentSpeakerIdRef.current,
+          }),
+        });
+        const routing = await routeRes.json();
+
+        if (routing.switchRequired && routing.nextSpeakerId) {
+          setCurrentSpeakerId(routing.nextSpeakerId);
+          currentSpeakerIdRef.current = routing.nextSpeakerId;
+          if (routing.nextSpeakerName) {
+            currentSpeakerNameRef.current = routing.nextSpeakerName;
           }
-          break;
         }
+      } catch {
+        // Fallback: no routing, current speaker responds
       }
     }
 
-    // Now send the message and request response with the correct character active
+    // Send the message with the routed character active
     const currentWs = wsRef.current;
     if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
 
@@ -679,7 +645,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
       })
     );
     currentWs.send(JSON.stringify({ type: "response.create" }));
-  }, [persistTurnBackground, cast, switchCharacter]);
+  }, [persistTurnBackground]);
 
   const toggleAutoChain = useCallback(() => {
     setAutoChain((prev) => {
