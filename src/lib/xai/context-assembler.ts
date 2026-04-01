@@ -143,11 +143,47 @@ export async function assembleContext(sessionId: string) {
     advancedPrompt: session.advanced_prompt,
   });
 
+  // If a scenario is active, generate a scenario-aware opening message
+  // instead of using the character's static initial_message
+  let initialMessage = character.initial_message;
+  if (scenarioText && process.env.XAI_API_KEY) {
+    try {
+      const res = await fetch("https://api.x.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.XAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "grok-3",
+          messages: [
+            {
+              role: "user",
+              content: `You are ${character.name}. ${character.personality}\n\nScenario: ${scenarioText}\n\nThe player "${userName}" has just arrived in this scenario. Write a short opening message (2-4 sentences) in character, set within this specific scenario. Use third-person narration for scene-setting (in italics with *), then dialogue. Do not speak for the player.`,
+            },
+          ],
+          max_tokens: 200,
+          temperature: 0.8,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const generated = data.choices?.[0]?.message?.content;
+        if (generated) {
+          initialMessage = generated;
+        }
+      }
+    } catch {
+      // Fall back to character's default initial message
+    }
+  }
+
   return {
     instructions,
     voiceId: character.voice_id,
     characterName: character.chat_name || character.name,
-    initialMessage: character.initial_message,
+    initialMessage,
     tokenEstimate: estimateTokens(instructions),
   };
 }
