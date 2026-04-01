@@ -210,7 +210,7 @@ export function ScenarioForm({ initial, onSubmit }: Props) {
                   onChange={() => toggleCast(char.id)}
                   className="h-4 w-4 rounded border-zinc-700 bg-zinc-800 text-indigo-600 focus:ring-indigo-600 focus:ring-offset-0"
                 />
-                <span className="text-sm text-zinc-200">{char.name}</span>
+                <span className="text-sm text-zinc-100 font-medium">{char.name}</span>
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs ${
                     voiceBadgeColors[char.voice_id] ??

@@ -57,6 +57,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
   const [error, setError] = useState<string | null>(null);
   const [characterName, setCharacterName] = useState<string>("");
   const [cast, setCast] = useState<CastMember[]>([]);
+  const castRef = useRef<CastMember[]>([]);
   const [currentSpeakerId, setCurrentSpeakerId] = useState<string>("");
   const currentSpeakerIdRef = useRef<string>("");
 
@@ -210,7 +211,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
 
       case WS_EVENTS.RESPONSE_CREATED: {
         currentResponseIdRef.current = event.response.id;
-        const speakerChar = cast.find((c) => c.id === currentSpeakerIdRef.current);
+        const speakerChar = castRef.current.find((c) => c.id === currentSpeakerIdRef.current);
         setMessages((prev) => [
           ...prev,
           {
@@ -350,7 +351,9 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
       tokenExpiresAt = tokenResult.expires_at;
       contextData = ctx;
       setCharacterName(ctx.characterName);
-      setCast(ctx.cast || []);
+      const castData = ctx.cast || [];
+      setCast(castData);
+      castRef.current = castData;
       setCurrentSpeakerId(ctx.characterId || "");
       currentSpeakerIdRef.current = ctx.characterId || "";
     } catch {
@@ -359,15 +362,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
       return;
     }
 
-    // If character has an initial message and no turns yet, show it
-    if (contextData.initialMessage && messages.length === 0) {
-      setMessages([{
-        id: `initial-${Date.now()}`,
-        role: "assistant",
-        text: contextData.initialMessage,
-      }]);
-      persistTurnBackground("assistant", contextData.initialMessage);
-    }
+    // Initial message is handled by the session page on mount, not here
 
     const ws = new WebSocket("wss://api.x.ai/v1/realtime", [
       `xai-client-secret.${tokenValue}`,
@@ -527,7 +522,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
     }
   }, [fetchSessionContext]);
 
-  const sendText = useCallback((text: string) => {
+  const sendText = useCallback(async (text: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     setMessages((prev) => [
@@ -536,8 +531,9 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
     ]);
     persistTurnBackground("user", text);
 
-    // Phase 3: Simple turn routing for text input
-    // Detect if user addressed a specific character by name
+    // Phase 3: Turn routing. Detect if user addressed a specific character.
+    // MUST await the switch before sending response.create so the right
+    // character's voice and personality are active.
     if (cast.length > 1) {
       const lower = text.toLowerCase();
       for (const member of cast) {
@@ -550,14 +546,20 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
           lower.includes(`@${name}`)
         ) {
           if (member.id !== currentSpeakerIdRef.current) {
-            switchCharacter(member.id);
+            await switchCharacter(member.id);
+            // Wait for session.updated confirmation before proceeding
+            await new Promise((resolve) => setTimeout(resolve, 300));
           }
           break;
         }
       }
     }
 
-    ws.send(
+    // Now send the message and request response with the correct character active
+    const currentWs = wsRef.current;
+    if (!currentWs || currentWs.readyState !== WebSocket.OPEN) return;
+
+    currentWs.send(
       JSON.stringify({
         type: "conversation.item.create",
         item: {
@@ -567,7 +569,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
         },
       })
     );
-    ws.send(JSON.stringify({ type: "response.create" }));
+    currentWs.send(JSON.stringify({ type: "response.create" }));
   }, [persistTurnBackground, cast, switchCharacter]);
 
   return {
