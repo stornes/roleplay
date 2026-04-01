@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { deleteCharacter } from "@/actions/characters";
 import { StartSessionForm } from "@/components/start-session-form";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Download } from "lucide-react";
 
 const voiceLabels: Record<string, string> = {
   ara: "Ara",
@@ -44,6 +44,14 @@ export default async function CharacterDetailPage({
           )}
         </div>
         <div className="flex gap-2">
+          <a
+            href={`/api/export?type=character&id=${id}`}
+            download
+            className="inline-flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700"
+            title="Export as JSON"
+          >
+            <Download className="h-4 w-4" />
+          </a>
           <Link
             href={`/characters/${id}/edit`}
             className="inline-flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700"

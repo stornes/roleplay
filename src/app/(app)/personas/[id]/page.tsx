@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { deletePersona } from "@/actions/personas";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Download } from "lucide-react";
 
 export default async function PersonaDetailPage({
   params,
@@ -35,6 +35,14 @@ export default async function PersonaDetailPage({
           )}
         </div>
         <div className="flex gap-2">
+          <a
+            href={`/api/export?type=persona&id=${id}`}
+            download
+            className="inline-flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700"
+            title="Export as JSON"
+          >
+            <Download className="h-4 w-4" />
+          </a>
           <Link
             href={`/personas/${id}/edit`}
             className="inline-flex items-center gap-2 rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700"
