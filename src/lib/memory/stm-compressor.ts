@@ -73,6 +73,12 @@ export async function compressStm(sessionId: string): Promise<void> {
     const data = await res.json();
     const summary = data.choices?.[0]?.message?.content || "";
 
+    // Only proceed with deletion if we got a valid summary
+    if (!summary || summary.length < 20) {
+      console.error("STM compression produced empty/short summary, skipping turn deletion");
+      return;
+    }
+
     // Update session with new summary
     await supabase
       .from("sessions")

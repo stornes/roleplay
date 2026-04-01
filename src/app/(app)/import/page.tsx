@@ -36,18 +36,21 @@ export default function ImportPage() {
       if (!data.name || typeof data.name !== "string") {
         throw new Error("Missing required field: name");
       }
+      if (data.name.length > 100) throw new Error("Name must be under 100 characters");
+      if (data.personality && data.personality.length > 10000) throw new Error("Personality must be under 10000 characters");
+      if (data.bio && data.bio.length > 10000) throw new Error("Bio must be under 10000 characters");
 
       await createCharacter({
-        name: data.name,
-        chat_name: data.chat_name ?? undefined,
-        bio: data.bio ?? "",
-        personality: data.personality ?? "",
+        name: data.name.slice(0, 100),
+        chat_name: data.chat_name ? String(data.chat_name).slice(0, 100) : undefined,
+        bio: data.bio ? String(data.bio).slice(0, 10000) : "",
+        personality: data.personality ? String(data.personality).slice(0, 10000) : "",
         scenario: data.scenario ?? undefined,
         initial_message: data.initial_message ?? undefined,
-        voice_id: data.voice_id ?? "ara",
-        tags: Array.isArray(data.tags) ? data.tags : [],
-        visibility: data.visibility ?? "private",
-        content_rating: data.content_rating ?? "sfw",
+        voice_id: ["ara", "rex", "sal", "eve", "leo"].includes(data.voice_id) ? data.voice_id : "ara",
+        tags: Array.isArray(data.tags) ? data.tags.slice(0, 10).map(String) : [],
+        visibility: "private" as const, // Always import as private for safety
+        content_rating: ["sfw", "mature"].includes(data.content_rating) ? data.content_rating : "sfw",
       });
 
       setCharMessage({ type: "success", text: "Character imported successfully!" });

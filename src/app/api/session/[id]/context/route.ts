@@ -14,7 +14,18 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Optional: specify which character to build context for (multi-character)
+  // Verify session ownership
+  const { data: session } = await supabase
+    .from("sessions")
+    .select("id")
+    .eq("id", sessionId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!session) {
+    return NextResponse.json({ error: "Session not found" }, { status: 404 });
+  }
+
   const url = new URL(request.url);
   const characterId = url.searchParams.get("characterId") || undefined;
 

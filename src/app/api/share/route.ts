@@ -37,8 +37,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ slug: existing.share_slug });
   }
 
-  // Generate a short slug
-  const slug = Math.random().toString(36).substring(2, 10);
+  // Generate a cryptographically secure slug
+  const slug = crypto.randomUUID().replace(/-/g, "").substring(0, 16);
 
   const { error } = await supabase.from("shared_sessions").insert({
     session_id: sessionId,

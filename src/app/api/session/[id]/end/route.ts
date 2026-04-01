@@ -16,12 +16,17 @@ export async function POST(
   }
 
   try {
-    // Fetch session to get character IDs before ending
+    // Fetch session (with ownership check)
     const { data: session } = await supabase
       .from("sessions")
       .select("active_character_ids")
       .eq("id", sessionId)
+      .eq("user_id", user.id)
       .single();
+
+    if (!session) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
 
     // End the session
     await endSession(sessionId);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useVoiceSession } from "@/hooks/use-voice-session";
 import { SessionPanel } from "@/components/session-panel";
 import { VoiceControls } from "@/components/voice-controls";
@@ -38,6 +38,8 @@ export default function LiveSessionPage() {
 
   const handleTurnPersisted = useCallback(() => {}, []);
 
+  const disconnectRef = useRef<() => void>(() => {});
+
   const {
     connect,
     disconnect,
@@ -52,6 +54,16 @@ export default function LiveSessionPage() {
     currentSpeakerId,
     autoChain,
   } = useVoiceSession({ sessionId, onTurnPersisted: handleTurnPersisted });
+
+  // Keep disconnect ref current for cleanup
+  disconnectRef.current = disconnect;
+
+  // Cleanup on unmount: close WebSocket, stop mic, release AudioContext
+  useEffect(() => {
+    return () => {
+      disconnectRef.current();
+    };
+  }, []);
 
   const displayName = characterName || loadedCharacterName || "Session";
   const displayCast = cast.length > 0 ? cast : loadedCast;
