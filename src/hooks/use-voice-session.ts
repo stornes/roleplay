@@ -60,6 +60,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
   const castRef = useRef<CastMember[]>([]);
   const [currentSpeakerId, setCurrentSpeakerId] = useState<string>("");
   const currentSpeakerIdRef = useRef<string>("");
+  const currentSpeakerNameRef = useRef<string>("");
 
   const statusRef = useRef<ConnectionStatus>("idle");
   const updateStatus = useCallback((s: ConnectionStatus) => {
@@ -545,9 +546,14 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
           lower === name ||
           lower.startsWith(`${name},`) ||
           lower.startsWith(`${name} `) ||
+          lower.endsWith(` ${name}`) ||
+          lower.endsWith(` ${name}?`) ||
+          lower.endsWith(` ${name}!`) ||
+          lower.endsWith(` ${name}.`) ||
           lower.includes(`talk to ${name}`) ||
           lower.includes(`hey ${name}`) ||
-          lower.includes(`@${name}`)
+          lower.includes(`@${name}`) ||
+          lower.includes(` ${name},`)
         ) {
           if (member.id !== currentSpeakerIdRef.current) {
             await switchCharacter(member.id);
