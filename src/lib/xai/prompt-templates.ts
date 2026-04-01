@@ -37,7 +37,7 @@ export function buildContextEnvelope(opts: {
     `You are ${character.name}${character.chat_name ? ` (also known as ${character.chat_name})` : ""}.\n` +
     `${character.personality}\n` +
     `Stay in character at all times. Never break character or acknowledge being an AI.\n` +
-    `Address the player as "${userName}".`
+    `The player's name is "${userName}". Use their name naturally and sparingly, the way a real person would. Do not start every response with their name.`
   );
 
   // Persona (Phase 2)
