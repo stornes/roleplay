@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createSession } from "@/lib/xai/session-orchestrator";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -11,22 +10,31 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { characterId, advancedPrompt } = body;
+  const { characterId, personaId, scenarioId, advancedPrompt } = body;
 
   if (!characterId) {
     return NextResponse.json({ error: "characterId required" }, { status: 400 });
   }
 
-  try {
-    const sessionId = await createSession({
-      userId: user.id,
-      characterId,
-      advancedPrompt,
-    });
+  const { data, error } = await supabase
+    .from("sessions")
+    .insert({
+      user_id: user.id,
+      active_character_ids: [characterId],
+      persona_id: personaId || null,
+      scenario_id: scenarioId || null,
+      advanced_prompt: advancedPrompt || null,
+      status: "active" as const,
+    })
+    .select("id")
+    .single();
 
-    return NextResponse.json({ sessionId });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to create session";
-    return NextResponse.json({ error: message }, { status: 500 });
+  if (error || !data) {
+    return NextResponse.json(
+      { error: `Failed to create session: ${error?.message}` },
+      { status: 500 }
+    );
   }
+
+  return NextResponse.json({ sessionId: data.id });
 }

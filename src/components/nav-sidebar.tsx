@@ -3,13 +3,16 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Users, MessageSquare, Settings, LogOut, Menu, X } from "lucide-react";
+import { Users, UserCircle, BookOpen, MessageSquare, Brain, Settings, LogOut, Menu, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/characters", label: "Characters", icon: Users },
+  { href: "/personas", label: "Personas", icon: UserCircle },
+  { href: "/scenarios", label: "Scenarios", icon: BookOpen },
   { href: "/sessions", label: "Sessions", icon: MessageSquare },
+  { href: "/memories", label: "Memories", icon: Brain },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

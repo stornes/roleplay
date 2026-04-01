@@ -4,17 +4,30 @@ type Character = Database["public"]["Tables"]["characters"]["Row"];
 
 /**
  * Build the system prompt (context envelope) for a character session.
- * Phase 1: character personality + user display name + STM.
- * Phase 2 adds: persona, scenario, LTM, advanced prompts.
+ * Phase 2: character + persona + scenario + LTM + STM + advanced prompts.
  */
 export function buildContextEnvelope(opts: {
   character: Character;
   userName: string;
+  personaDescription?: string;
+  personaAppearance?: string;
+  scenarioText?: string;
+  ltmResults?: string;
   stmSummary?: string | null;
   recentTurns?: { speaker: string; text: string }[];
   advancedPrompt?: string | null;
 }): string {
-  const { character, userName, stmSummary, recentTurns, advancedPrompt } = opts;
+  const {
+    character,
+    userName,
+    personaDescription,
+    personaAppearance,
+    scenarioText,
+    ltmResults,
+    stmSummary,
+    recentTurns,
+    advancedPrompt,
+  } = opts;
 
   const sections: string[] = [];
 
@@ -27,14 +40,29 @@ export function buildContextEnvelope(opts: {
     `Address the player as "${userName}".`
   );
 
-  // Character scenario context (if set on the character itself)
-  if (character.scenario) {
+  // Persona (Phase 2)
+  if (personaDescription || personaAppearance) {
+    const personaParts = [`[PLAYER PERSONA]`, `The player's name is ${userName}.`];
+    if (personaDescription) personaParts.push(personaDescription);
+    if (personaAppearance) personaParts.push(`Appearance: ${personaAppearance}`);
+    sections.push(personaParts.join("\n"));
+  }
+
+  // Scenario (Phase 2: session-level scenario overrides character scenario)
+  if (scenarioText) {
+    sections.push(`[SCENARIO]\n${scenarioText}`);
+  } else if (character.scenario) {
     sections.push(`[SCENARIO]\n${character.scenario}`);
   }
 
   // Advanced prompt (if set on the session)
   if (advancedPrompt) {
     sections.push(`[AUTHOR DIRECTION]\n${advancedPrompt}`);
+  }
+
+  // Long-term memory (Phase 2)
+  if (ltmResults) {
+    sections.push(`[LONG-TERM MEMORY]\nFrom past conversations you recall:\n${ltmResults}`);
   }
 
   // Short-term memory summary (compressed older conversation)
