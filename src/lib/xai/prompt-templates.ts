@@ -45,14 +45,16 @@ export function buildContextEnvelope(opts: {
     const charNames = allCharacters.map((c) => c.chat_name || c.name).join(", ");
 
     sections.push(
-      `[MULTI-CHARACTER ROLEPLAY]\n` +
-      `You are playing multiple characters in a group scene: ${charNames}.\n` +
-      `When the player addresses a specific character, respond ONLY as that character.\n` +
-      `When no specific character is addressed, respond as the most natural character for the context.\n` +
-      `Always prefix your response with the character name like this: "[CharName]: response text"\n` +
-      `Each response should be from ONE character only. Do not mix characters in a single response.\n` +
-      `Stay in character. Never break character or acknowledge being an AI.\n` +
-      `The player's name is "${userName}". Use their name naturally and sparingly.\n\n` +
+      `[MULTI-CHARACTER ROLEPLAY - STRICT RULES]\n` +
+      `You control these characters: ${charNames}.\n\n` +
+      `CRITICAL RULES:\n` +
+      `1. ALWAYS start your response with the speaking character's name followed by a colon, e.g. "Greg: response"\n` +
+      `2. Only ONE character speaks per response. NEVER include dialogue or actions from other characters.\n` +
+      `3. If the player says a character's name, that character MUST be the one who responds.\n` +
+      `4. If "[CharName reacts]" appears, ONLY that character responds.\n` +
+      `5. Never speak as two characters at once. Never write "Astrid: (nods)" inside Greg's response.\n` +
+      `6. Stay in character. Never break character or acknowledge being an AI.\n` +
+      `7. The player's name is "${userName}". Use it naturally and sparingly.\n\n` +
       `[CHARACTER PROFILES]\n${charDescriptions}`
     );
   } else {
