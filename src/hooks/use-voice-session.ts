@@ -606,8 +606,20 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
         ) {
           if (member.id !== currentSpeakerIdRef.current) {
             await switchCharacter(member.id);
-            // Wait for session.updated confirmation before proceeding
-            await new Promise((resolve) => setTimeout(resolve, 300));
+            // Wait for session.update to be processed by xAI server
+            await new Promise<void>((resolve) => {
+              const checkReady = () => {
+                if (isSessionReadyRef.current) {
+                  resolve();
+                } else {
+                  setTimeout(checkReady, 100);
+                }
+              };
+              isSessionReadyRef.current = false;
+              setTimeout(checkReady, 200);
+              // Timeout fallback
+              setTimeout(resolve, 2000);
+            });
           }
           break;
         }

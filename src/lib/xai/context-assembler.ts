@@ -146,11 +146,11 @@ export async function assembleContext(sessionId: string, targetCharacterId?: str
 
   const instructions = buildContextEnvelope({
     character,
+    allCharacters: allCharacters.length > 1 ? allCharacters : undefined,
     userName,
     personaDescription,
     personaAppearance,
     scenarioText,
-    castAwareness,
     ltmResults,
     stmSummary: session.stm_summary,
     recentTurns: trimmedTurns,

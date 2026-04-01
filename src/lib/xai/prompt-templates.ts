@@ -8,6 +8,7 @@ type Character = Database["public"]["Tables"]["characters"]["Row"];
  */
 export function buildContextEnvelope(opts: {
   character: Character;
+  allCharacters?: Character[];
   userName: string;
   personaDescription?: string;
   personaAppearance?: string;
@@ -20,11 +21,11 @@ export function buildContextEnvelope(opts: {
 }): string {
   const {
     character,
+    allCharacters,
     userName,
     personaDescription,
     personaAppearance,
     scenarioText,
-    castAwareness,
     ltmResults,
     stmSummary,
     recentTurns,
@@ -32,15 +33,38 @@ export function buildContextEnvelope(opts: {
   } = opts;
 
   const sections: string[] = [];
+  const isMultiChar = allCharacters && allCharacters.length > 1;
 
-  // Character identity and personality
-  sections.push(
-    `[CHARACTER]\n` +
-    `You are ${character.name}${character.chat_name ? ` (also known as ${character.chat_name})` : ""}.\n` +
-    `${character.personality}\n` +
-    `Stay in character at all times. Never break character or acknowledge being an AI.\n` +
-    `The player's name is "${userName}". Use their name naturally and sparingly, the way a real person would. Do not start every response with their name.`
-  );
+  if (isMultiChar) {
+    // Multi-character mode: unified prompt with all characters
+    const charDescriptions = allCharacters.map((c) => {
+      const name = c.chat_name || c.name;
+      return `**${name}:** ${c.personality}`;
+    }).join("\n\n");
+
+    const charNames = allCharacters.map((c) => c.chat_name || c.name).join(", ");
+
+    sections.push(
+      `[MULTI-CHARACTER ROLEPLAY]\n` +
+      `You are playing multiple characters in a group scene: ${charNames}.\n` +
+      `When the player addresses a specific character, respond ONLY as that character.\n` +
+      `When no specific character is addressed, respond as the most natural character for the context.\n` +
+      `Always prefix your response with the character name like this: "[CharName]: response text"\n` +
+      `Each response should be from ONE character only. Do not mix characters in a single response.\n` +
+      `Stay in character. Never break character or acknowledge being an AI.\n` +
+      `The player's name is "${userName}". Use their name naturally and sparingly.\n\n` +
+      `[CHARACTER PROFILES]\n${charDescriptions}`
+    );
+  } else {
+    // Single character mode
+    sections.push(
+      `[CHARACTER]\n` +
+      `You are ${character.name}${character.chat_name ? ` (also known as ${character.chat_name})` : ""}.\n` +
+      `${character.personality}\n` +
+      `Stay in character at all times. Never break character or acknowledge being an AI.\n` +
+      `The player's name is "${userName}". Use their name naturally and sparingly, the way a real person would. Do not start every response with their name.`
+    );
+  }
 
   // Persona (Phase 2)
   if (personaDescription || personaAppearance) {
@@ -50,16 +74,11 @@ export function buildContextEnvelope(opts: {
     sections.push(personaParts.join("\n"));
   }
 
-  // Scenario (Phase 2: session-level scenario overrides character scenario)
+  // Scenario
   if (scenarioText) {
     sections.push(`[SCENARIO]\n${scenarioText}`);
   } else if (character.scenario) {
     sections.push(`[SCENARIO]\n${character.scenario}`);
-  }
-
-  // Cast awareness (Phase 3: multi-character)
-  if (castAwareness) {
-    sections.push(castAwareness);
   }
 
   // Advanced prompt (if set on the session)

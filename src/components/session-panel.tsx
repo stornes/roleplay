@@ -10,6 +10,21 @@ interface SessionPanelProps {
   isMultiCharacter?: boolean;
 }
 
+/**
+ * Parse "[CharName]: text" prefix from multi-character responses.
+ * Returns { name, text } if found, otherwise null.
+ */
+function parseCharacterPrefix(text: string): { name: string; text: string } | null {
+  // Match patterns like "Greg: ...", "[Greg]: ...", "**Greg:** ..."
+  const match = text.match(/^(?:\[?(\w[\w\s]*?)\]?:\s*|(?:\*\*(\w[\w\s]*?)\*\*:\s*))(.[\s\S]+)/);
+  if (match) {
+    const name = (match[1] || match[2]).trim();
+    const rest = match[3].trim();
+    return { name, text: rest };
+  }
+  return null;
+}
+
 export function SessionPanel({ messages, characterName, userName = "You", isMultiCharacter }: SessionPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -29,36 +44,50 @@ export function SessionPanel({ messages, characterName, userName = "You", isMult
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
-      {messages.map((msg) => (
-        <div
-          key={msg.id}
-          className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-        >
+      {messages.map((msg) => {
+        // For assistant messages in multi-character mode, parse the character prefix
+        let displayName = msg.role === "user" ? userName : (msg.speakerName || characterName);
+        let displayText = msg.text;
+
+        if (msg.role === "assistant" && isMultiCharacter && msg.text) {
+          const parsed = parseCharacterPrefix(msg.text);
+          if (parsed) {
+            displayName = parsed.name;
+            displayText = parsed.text;
+          }
+        }
+
+        return (
           <div
-            className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-              msg.role === "user"
-                ? "bg-indigo-600 text-white"
-                : "bg-zinc-800 text-zinc-100"
-            } ${msg.interrupted ? "opacity-60" : ""}`}
+            key={msg.id}
+            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
-            <div className="text-xs font-medium mb-1 opacity-70">
-              {msg.role === "user" ? userName : (msg.speakerName || characterName)}
-            </div>
-            <p className="text-sm whitespace-pre-wrap leading-relaxed">
-              {msg.text || (
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-pulse" />
-                  <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-pulse delay-75" />
-                  <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-pulse delay-150" />
-                </span>
+            <div
+              className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                msg.role === "user"
+                  ? "bg-indigo-600 text-white"
+                  : "bg-zinc-800 text-zinc-100"
+              } ${msg.interrupted ? "opacity-60" : ""}`}
+            >
+              <div className="text-xs font-medium mb-1 opacity-70">
+                {displayName}
+              </div>
+              <p className="text-sm whitespace-pre-wrap leading-relaxed">
+                {displayText || (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-pulse" />
+                    <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-pulse delay-75" />
+                    <span className="w-1.5 h-1.5 bg-zinc-400 rounded-full animate-pulse delay-150" />
+                  </span>
+                )}
+              </p>
+              {msg.interrupted && (
+                <div className="text-xs mt-1 opacity-50 italic">interrupted</div>
               )}
-            </p>
-            {msg.interrupted && (
-              <div className="text-xs mt-1 opacity-50 italic">interrupted</div>
-            )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
