@@ -76,6 +76,6 @@ export async function POST(
   return NextResponse.json({
     nextSpeakerId: nextSpeaker.id,
     nextSpeakerName: nextSpeaker.chat_name || nextSpeaker.name,
-    switchRequired: nextSpeaker.id !== currentSpeakerId,
+    switchRequired: nextSpeaker.id !== lastSpeakerId,
   });
 }
