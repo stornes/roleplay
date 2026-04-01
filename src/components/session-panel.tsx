@@ -15,12 +15,12 @@ interface SessionPanelProps {
  * Returns { name, text } if found, otherwise null.
  */
 function parseCharacterPrefix(text: string): { name: string; text: string } | null {
-  // Match patterns like "Greg: ...", "[Greg]: ...", "**Greg:** ..."
-  const match = text.match(/^(?:\[?(\w[\w\s]*?)\]?:\s*|(?:\*\*(\w[\w\s]*?)\*\*:\s*))(.[\s\S]+)/);
+  // Match patterns: "Greg: ...", "[Greg]: ...", "**Greg:** ...", "Greg. ..."
+  const match = text.match(/^(?:\[?(\w[\w\s]*?)\]?:\s*|(?:\*\*(\w[\w\s]*?)\*\*:\s*)|(\w[\w\s]*?)\.\s\s*)(.[\s\S]+)/);
   if (match) {
-    const name = (match[1] || match[2]).trim();
-    const rest = match[3].trim();
-    return { name, text: rest };
+    const name = (match[1] || match[2] || match[3])?.trim();
+    const rest = (match[4])?.trim();
+    if (name && rest) return { name, text: rest };
   }
   return null;
 }
@@ -49,7 +49,7 @@ export function SessionPanel({ messages, characterName, userName = "You", isMult
         let displayName = msg.role === "user" ? userName : (msg.speakerName || characterName);
         let displayText = msg.text;
 
-        if (msg.role === "assistant" && isMultiCharacter && msg.text) {
+        if (msg.role === "assistant" && msg.text) {
           const parsed = parseCharacterPrefix(msg.text);
           if (parsed) {
             displayName = parsed.name;
