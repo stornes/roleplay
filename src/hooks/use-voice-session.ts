@@ -290,10 +290,28 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
             // Delay to feel natural (1-3 seconds)
             const delay = 1000 + Math.random() * 2000;
             setTimeout(async () => {
-              await switchCharacter(nextChar.id);
-              await new Promise((r) => setTimeout(r, 300));
               const ws = wsRef.current;
               if (ws?.readyState === WebSocket.OPEN) {
+                // Inject a system hint telling the LLM who should speak next
+                ws.send(
+                  JSON.stringify({
+                    type: "conversation.item.create",
+                    item: {
+                      type: "message",
+                      role: "user",
+                      content: [
+                        {
+                          type: "input_text",
+                          text: `[${nextChar.name} reacts to what was just said]`,
+                        },
+                      ],
+                    },
+                  })
+                );
+                // Update speaker tracking
+                setCurrentSpeakerId(nextChar.id);
+                currentSpeakerIdRef.current = nextChar.id;
+                currentSpeakerNameRef.current = nextChar.name;
                 ws.send(JSON.stringify({ type: "response.create" }));
               }
               // Reset cooldown after the chain response completes
