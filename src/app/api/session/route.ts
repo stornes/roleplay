@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { rateLimitSession } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -7,6 +8,15 @@ export async function POST(request: Request) {
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Rate limit: max 10 sessions per hour
+  const limit = rateLimitSession(user.id);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded. Try again later.", remaining: 0 },
+      { status: 429 }
+    );
   }
 
   const body = await request.json();

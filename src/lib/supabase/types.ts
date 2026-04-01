@@ -260,6 +260,25 @@ export interface Database {
         };
         Relationships: [];
       };
+      shared_sessions: {
+        Row: {
+          id: string;
+          session_id: string;
+          user_id: string;
+          share_slug: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          session_id: string;
+          user_id: string;
+          share_slug: string;
+        };
+        Update: {
+          share_slug?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {

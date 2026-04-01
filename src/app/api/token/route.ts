@@ -1,6 +1,25 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { rateLimitToken } from "@/lib/rate-limit";
 
 export async function POST() {
+  // Auth check: only authenticated users can get xAI tokens
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Rate limit: max 60 token requests per hour
+  const limit = rateLimitToken(user.id);
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded" },
+      { status: 429 }
+    );
+  }
+
   const apiKey = process.env.XAI_API_KEY;
 
   if (!apiKey) {

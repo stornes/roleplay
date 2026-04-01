@@ -110,30 +110,4 @@ export async function endSession(sessionId: string): Promise<void> {
     .eq("id", sessionId);
 }
 
-/**
- * Create a new session for a character.
- */
-export async function createSession(opts: {
-  userId: string;
-  characterId: string;
-  advancedPrompt?: string;
-}): Promise<string> {
-  const supabase = await createClient();
-
-  const { data, error } = await supabase
-    .from("sessions")
-    .insert({
-      user_id: opts.userId,
-      active_character_ids: [opts.characterId],
-      advanced_prompt: opts.advancedPrompt,
-      status: "active" as const,
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) {
-    throw new Error(`Failed to create session: ${error?.message}`);
-  }
-
-  return data.id;
-}
+// createSession removed: session creation handled by /api/session route

@@ -45,6 +45,8 @@ function audioToBase64(int16Array: Int16Array): string {
 }
 
 const MAX_BUFFER_SAMPLES = 240_000;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_BASE_DELAY = 1000;
 
 interface UseVoiceSessionOpts {
   sessionId: string;
@@ -64,6 +66,8 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
   const [autoChain, setAutoChain] = useState(true);
   const autoChainRef = useRef(true);
   const chainCooldownRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const statusRef = useRef<ConnectionStatus>("idle");
   const updateStatus = useCallback((s: ConnectionStatus) => {
@@ -478,13 +482,19 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
     ws.onclose = () => {
       clearTimeout(connectTimeout);
       if (!intentionalDisconnectRef.current) {
-        // Auto-reconnect on TTL expiry
+        if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+          setError("Connection lost after multiple retries");
+          updateStatus("error");
+          return;
+        }
         updateStatus("reconnecting");
-        setTimeout(() => {
+        const delay = RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttemptsRef.current);
+        reconnectAttemptsRef.current++;
+        reconnectTimerRef.current = setTimeout(() => {
           if (!intentionalDisconnectRef.current) {
             reconnect();
           }
-        }, 1000);
+        }, delay);
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -510,6 +520,7 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
 
       ws.onopen = () => {
         updateStatus("active");
+        reconnectAttemptsRef.current = 0; // Reset on successful reconnect
         isSessionReadyRef.current = false;
         ws.send(
           JSON.stringify({
@@ -533,8 +544,15 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
       ws.onerror = () => updateStatus("error");
       ws.onclose = () => {
         if (!intentionalDisconnectRef.current) {
+          if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+            setError("Connection lost after multiple retries");
+            updateStatus("error");
+            return;
+          }
           updateStatus("reconnecting");
-          setTimeout(() => reconnect(), 1000);
+          const delay = RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttemptsRef.current);
+          reconnectAttemptsRef.current++;
+          reconnectTimerRef.current = setTimeout(() => reconnect(), delay);
         }
       };
     } catch {
@@ -546,6 +564,8 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
   const disconnect = useCallback(() => {
     intentionalDisconnectRef.current = true;
     if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    reconnectAttemptsRef.current = 0;
     interruptPlayback();
     wsRef.current?.close();
     wsRef.current = null;

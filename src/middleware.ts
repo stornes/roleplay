@@ -29,9 +29,15 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const isAppRoute = request.nextUrl.pathname.startsWith("/characters") ||
-    request.nextUrl.pathname.startsWith("/sessions") ||
-    request.nextUrl.pathname.startsWith("/settings");
+  const publicRoutes = ["/login", "/callback", "/shared"];
+  const isPublicRoute = publicRoutes.some((r) =>
+    request.nextUrl.pathname.startsWith(r)
+  ) || request.nextUrl.pathname === "/";
+
+  const isApiRoute = request.nextUrl.pathname.startsWith("/api");
+
+  // All non-public, non-API routes require auth
+  const isAppRoute = !isPublicRoute && !isApiRoute;
 
   if (!user && isAppRoute) {
     const url = request.nextUrl.clone();

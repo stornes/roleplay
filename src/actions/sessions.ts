@@ -32,6 +32,11 @@ export async function createSessionAction(characterId: string) {
 
 export async function endSessionAction(sessionId: string) {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
 
   await supabase
     .from("sessions")
@@ -39,7 +44,8 @@ export async function endSessionAction(sessionId: string) {
       status: "ended" as const,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", sessionId);
+    .eq("id", sessionId)
+    .eq("user_id", user.id);
 
   revalidatePath("/sessions");
   redirect("/sessions");
