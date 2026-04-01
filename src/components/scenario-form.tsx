@@ -51,8 +51,60 @@ export function ScenarioForm({ initial, onSubmit }: Props) {
     }
   }
 
+  const [importText, setImportText] = useState("");
+
+  function handleImport() {
+    if (!importText.trim()) return;
+    const text = importText;
+
+    const get = (key: string): string => {
+      const patterns = [
+        new RegExp(`\\*\\*${key}:\\*\\*\\s*(.+?)(?=\\n\\*\\*|\\n\\n|$)`, "is"),
+        new RegExp(`^${key}:\\s*(.+?)(?=\\n[A-Z]|\\n\\n|$)`, "ims"),
+      ];
+      for (const pat of patterns) {
+        const m = text.match(pat);
+        if (m) return m[1].trim();
+      }
+      return "";
+    };
+
+    const t = get("Title") || get("Scenario Title");
+    const desc = get("Description") || get("Scenario Description");
+    const tp = get("Time Period");
+    const s = get("Setting");
+
+    if (t) setTitle(t);
+    if (desc) setDescription(desc);
+    if (tp) setTimePeriod(tp);
+    if (s) setSetting(s);
+    setImportText("");
+  }
+
   return (
     <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">
+      {/* Quick Import */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-zinc-100">Quick Import</h2>
+        <p className="text-xs text-zinc-500">
+          Paste a scenario definition and it will auto-fill the fields below.
+        </p>
+        <textarea
+          className={`${inputClass} h-28 resize-y`}
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          placeholder={"**Title:** Cabin Fever\n**Description:** A remote cabin...\n**Time Period:** Present day\n**Setting:** Northern Norway"}
+        />
+        <button
+          type="button"
+          onClick={handleImport}
+          disabled={!importText.trim()}
+          className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:opacity-50"
+        >
+          Parse and Fill
+        </button>
+      </section>
+
       <section className="space-y-4">
         <h2 className="text-lg font-semibold text-zinc-100">
           Scenario Details

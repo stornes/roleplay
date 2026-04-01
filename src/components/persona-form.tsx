@@ -48,8 +48,59 @@ export function PersonaForm({ initial, onSubmit }: Props) {
     }
   }
 
+  const [importText, setImportText] = useState("");
+
+  function handleImport() {
+    if (!importText.trim()) return;
+    const text = importText;
+
+    // Parse **Field:** Value or Field: Value patterns
+    const get = (key: string): string => {
+      const patterns = [
+        new RegExp(`\\*\\*${key}:\\*\\*\\s*(.+?)(?=\\n\\*\\*|\\n\\n|$)`, "is"),
+        new RegExp(`^${key}:\\s*(.+?)(?=\\n[A-Z]|\\n\\n|$)`, "ims"),
+      ];
+      for (const pat of patterns) {
+        const m = text.match(pat);
+        if (m) return m[1].trim();
+      }
+      return "";
+    };
+
+    const name = get("Persona Name") || get("Name");
+    const desc = get("Persona Description") || get("Description");
+    const appearance = get("Persona Appearance") || get("Appearance");
+
+    if (name) setPersonaName(name);
+    if (desc) setPersonaDescription(desc);
+    if (appearance) setPersonaAppearance(appearance);
+    setImportText("");
+  }
+
   return (
     <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">
+      {/* Quick Import */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-zinc-100">Quick Import</h2>
+        <p className="text-xs text-zinc-500">
+          Paste a persona definition and it will auto-fill the fields below.
+        </p>
+        <textarea
+          className={`${inputClass} h-28 resize-y`}
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          placeholder={"**Name:** Sverre\n**Description:** Late 50s Norwegian...\n**Appearance:** Tall, fit..."}
+        />
+        <button
+          type="button"
+          onClick={handleImport}
+          disabled={!importText.trim()}
+          className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:opacity-50"
+        >
+          Parse and Fill
+        </button>
+      </section>
+
       <section className="space-y-4">
         <h2 className="text-lg font-semibold text-zinc-100">Persona Details</h2>
         <div>

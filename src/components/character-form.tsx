@@ -86,8 +86,68 @@ export function CharacterForm({ initial, onSubmit }: Props) {
     }
   }
 
+  const [importText, setImportText] = useState("");
+
+  function handleImport() {
+    if (!importText.trim()) return;
+    const text = importText;
+
+    const get = (key: string): string => {
+      const patterns = [
+        new RegExp(`\\*\\*${key}:\\*\\*\\s*(.+?)(?=\\n\\*\\*|\\n\\n|$)`, "is"),
+        new RegExp(`^${key}:\\s*(.+?)(?=\\n[A-Z]|\\n\\n|$)`, "ims"),
+      ];
+      for (const pat of patterns) {
+        const m = text.match(pat);
+        if (m) return m[1].trim();
+      }
+      return "";
+    };
+
+    const n = get("Name");
+    const cn = get("Chat Name");
+    const b = get("Bio");
+    const p = get("Personality");
+    const s = get("Scenario");
+    const im = get("Initial Message");
+    const v = get("Voice")?.toLowerCase();
+    const t = get("Tags");
+
+    if (n) setName(n);
+    if (cn) setChatName(cn);
+    if (b) setBio(b);
+    if (p) setPersonality(p);
+    if (s) setScenario(s);
+    if (im) setInitialMessage(im);
+    if (v && ["ara", "rex", "sal", "eve", "leo"].includes(v)) setVoiceId(v as VoiceId);
+    if (t) setTagsStr(t);
+    setImportText("");
+  }
+
   return (
     <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">
+      {/* Quick Import */}
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-zinc-100">Quick Import</h2>
+        <p className="text-xs text-zinc-500">
+          Paste a character definition and it will auto-fill the fields below.
+        </p>
+        <textarea
+          className={`${inputClass} h-28 resize-y`}
+          value={importText}
+          onChange={(e) => setImportText(e.target.value)}
+          placeholder={"**Name:** Greg\n**Bio:** A grizzled former dock worker...\n**Personality:** You are Greg...\n**Voice:** Rex\n**Tags:** mystery, noir"}
+        />
+        <button
+          type="button"
+          onClick={handleImport}
+          disabled={!importText.trim()}
+          className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-zinc-700 disabled:opacity-50"
+        >
+          Parse and Fill
+        </button>
+      </section>
+
       {/* Identity */}
       <section className="space-y-4">
         <h2 className="text-lg font-semibold text-zinc-100">Identity</h2>
