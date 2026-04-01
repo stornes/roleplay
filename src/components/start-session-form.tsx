@@ -206,12 +206,12 @@ export function StartSessionForm({ characterId }: Props) {
             return (
               <div
                 key={cid}
-                className="flex items-center justify-between rounded-md bg-zinc-800 px-3 py-1.5"
+                className="flex items-center justify-between rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2"
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-zinc-200">{char.name}</span>
+                  <span className="text-sm font-medium text-zinc-100">{char.name}</span>
                   {index === 0 && (
-                    <span className="rounded-full bg-indigo-900/50 px-1.5 py-0.5 text-[10px] text-indigo-400">
+                    <span className="rounded-full bg-indigo-600/30 px-2 py-0.5 text-[10px] font-medium text-indigo-300">
                       primary
                     </span>
                   )}

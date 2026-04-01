@@ -502,11 +502,14 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
+    // Update speaker immediately from cast data (before async fetch)
+    const castMember = castRef.current.find((c) => c.id === charId);
+    setCurrentSpeakerId(charId);
+    currentSpeakerIdRef.current = charId;
+    if (castMember) setCharacterName(castMember.name);
+
     try {
       const ctx = await fetchSessionContext(charId);
-      setCurrentSpeakerId(charId);
-      currentSpeakerIdRef.current = charId;
-      setCharacterName(ctx.characterName);
 
       ws.send(
         JSON.stringify({
@@ -535,10 +538,11 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
     // MUST await the switch before sending response.create so the right
     // character's voice and personality are active.
     if (cast.length > 1) {
-      const lower = text.toLowerCase();
+      const lower = text.toLowerCase().trim();
       for (const member of cast) {
         const name = member.name.toLowerCase();
         if (
+          lower === name ||
           lower.startsWith(`${name},`) ||
           lower.startsWith(`${name} `) ||
           lower.includes(`talk to ${name}`) ||
