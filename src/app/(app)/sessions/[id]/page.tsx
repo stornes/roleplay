@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useVoiceSession } from "@/hooks/use-voice-session";
 import { SessionPanel } from "@/components/session-panel";
 import { VoiceControls } from "@/components/voice-controls";
-import { ArrowLeft, Square } from "lucide-react";
+import { ArrowLeft, Square, MessageSquare } from "lucide-react";
 import type { Message, CastMember } from "@/hooks/use-voice-session";
 
 export default function LiveSessionPage() {
@@ -43,12 +43,14 @@ export default function LiveSessionPage() {
     disconnect,
     sendText,
     switchCharacter,
+    toggleAutoChain,
     status,
     messages,
     error,
     characterName,
     cast,
     currentSpeakerId,
+    autoChain,
   } = useVoiceSession({ sessionId, onTurnPersisted: handleTurnPersisted });
 
   const displayName = characterName || loadedCharacterName || "Session";
@@ -107,13 +109,29 @@ export default function LiveSessionPage() {
             )}
           </div>
         </div>
-        <button
-          onClick={handleEndSession}
-          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors text-sm"
-        >
-          <Square className="w-3.5 h-3.5" />
-          End Session
-        </button>
+        <div className="flex items-center gap-2">
+          {isMultiCharacter && (
+            <button
+              onClick={toggleAutoChain}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
+                autoChain
+                  ? "bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30"
+                  : "bg-zinc-800 text-zinc-500 hover:bg-zinc-700"
+              }`}
+              title={autoChain ? "Characters react to each other (on)" : "Characters only respond to you (off)"}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Auto-chat {autoChain ? "on" : "off"}
+            </button>
+          )}
+          <button
+            onClick={handleEndSession}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors text-sm"
+          >
+            <Square className="w-3.5 h-3.5" />
+            End Session
+          </button>
+        </div>
       </div>
 
       {/* Transcript */}

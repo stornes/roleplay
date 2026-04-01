@@ -61,6 +61,9 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
   const [currentSpeakerId, setCurrentSpeakerId] = useState<string>("");
   const currentSpeakerIdRef = useRef<string>("");
   const currentSpeakerNameRef = useRef<string>("");
+  const [autoChain, setAutoChain] = useState(true);
+  const autoChainRef = useRef(true);
+  const chainCooldownRef = useRef(false);
 
   const statusRef = useRef<ConnectionStatus>("idle");
   const updateStatus = useCallback((s: ConnectionStatus) => {
@@ -244,16 +247,62 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
       case WS_EVENTS.RESPONSE_DONE: {
         // Persist assistant turn
         const doneId = currentResponseIdRef.current;
+        let responseText = "";
         if (doneId) {
           setMessages((prev) => {
             const msg = prev.find((m) => m.id === doneId);
             if (msg && msg.text) {
+              responseText = msg.text;
               persistTurnBackground("assistant", msg.text);
             }
             return prev;
           });
         }
         currentResponseIdRef.current = null;
+
+        // Auto-chain: let another character react if multiple are present
+        if (
+          autoChainRef.current &&
+          !chainCooldownRef.current &&
+          castRef.current.length > 1 &&
+          responseText.length > 0
+        ) {
+          // Check if the response mentions another character by name
+          const others = castRef.current.filter(
+            (c) => c.id !== currentSpeakerIdRef.current
+          );
+          const mentionsOther = others.some((c) =>
+            responseText.toLowerCase().includes(c.name.toLowerCase())
+          );
+
+          // Chain if another character is mentioned, or 30% random chance
+          const shouldChain = mentionsOther || Math.random() < 0.3;
+
+          if (shouldChain) {
+            chainCooldownRef.current = true;
+            // Pick the mentioned character, or a random other
+            const nextChar = mentionsOther
+              ? others.find((c) =>
+                  responseText.toLowerCase().includes(c.name.toLowerCase())
+                )!
+              : others[Math.floor(Math.random() * others.length)];
+
+            // Delay to feel natural (1-3 seconds)
+            const delay = 1000 + Math.random() * 2000;
+            setTimeout(async () => {
+              await switchCharacter(nextChar.id);
+              await new Promise((r) => setTimeout(r, 300));
+              const ws = wsRef.current;
+              if (ws?.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "response.create" }));
+              }
+              // Reset cooldown after the chain response completes
+              setTimeout(() => {
+                chainCooldownRef.current = false;
+              }, 5000);
+            }, delay);
+          }
+        }
         break;
       }
 
@@ -582,17 +631,27 @@ export function useVoiceSession({ sessionId, onTurnPersisted }: UseVoiceSessionO
     currentWs.send(JSON.stringify({ type: "response.create" }));
   }, [persistTurnBackground, cast, switchCharacter]);
 
+  const toggleAutoChain = useCallback(() => {
+    setAutoChain((prev) => {
+      const next = !prev;
+      autoChainRef.current = next;
+      return next;
+    });
+  }, []);
+
   return {
     connect,
     disconnect,
     reconnect,
     sendText,
     switchCharacter,
+    toggleAutoChain,
     status,
     messages,
     error,
     characterName,
     cast,
     currentSpeakerId,
+    autoChain,
   };
 }
