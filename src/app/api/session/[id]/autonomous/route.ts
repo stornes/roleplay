@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 import {
   runAutonomousLoop,
   stopAutonomous,
@@ -43,8 +44,18 @@ export async function POST(
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  const body = await request.json();
-  const { action, maxTurns, delayMs } = body;
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const { action, maxTurns, delayMs } = body as {
+    action?: string;
+    maxTurns?: number;
+    delayMs?: number;
+  };
 
   if (action === "stop") {
     const stopped = stopAutonomous(sessionId);
@@ -52,6 +63,19 @@ export async function POST(
   }
 
   if (action === "start") {
+    // Rate limit: max 5 autonomous runs per hour
+    const limit = checkRateLimit({
+      key: `autonomous:${user.id}`,
+      maxRequests: 5,
+      windowMs: 60 * 60 * 1000,
+    });
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded for autonomous runs. Try again later." },
+        { status: 429 }
+      );
+    }
+
     if (isAutonomousRunning(sessionId)) {
       return NextResponse.json({ error: "Already running" }, { status: 409 });
     }
@@ -64,7 +88,6 @@ export async function POST(
     }
 
     // Start the loop in the background (fire and forget)
-    // Events will be picked up by SSE endpoint
     const events: AutonomousEvent[] = [];
     autonomousEventQueues.set(sessionId, events);
 
@@ -73,7 +96,8 @@ export async function POST(
 
     runAutonomousLoop(
       sessionId,
-      { maxTurns: maxTurns || 20, delayMs: delayMs ?? 2000 },
+      userId,
+      { maxTurns: (maxTurns as number) || 20, delayMs: (delayMs as number) ?? 2000 },
       (event) => {
         const queue = autonomousEventQueues.get(sessionId);
         if (queue) {
@@ -151,8 +175,10 @@ export async function GET(
           );
           lastEventIndex++;
 
-          // If complete or error that ends the loop, clean up after a delay
+          // If complete, clean up intervals and queue
           if (event.type === "complete") {
+            clearInterval(interval);
+            clearInterval(keepalive);
             setTimeout(() => {
               autonomousEventQueues.delete(sessionId);
             }, 30000);

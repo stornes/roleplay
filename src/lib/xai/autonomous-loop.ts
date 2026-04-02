@@ -15,6 +15,7 @@ type Character = Database["public"]["Tables"]["characters"]["Row"];
 const MAX_TURNS_HARD_LIMIT = 100;
 const DEFAULT_MAX_TURNS = 20;
 const DEFAULT_DELAY_MS = 2000;
+const MAX_CONVERSATION_HISTORY = 40;
 
 export interface AutonomousConfig {
   maxTurns: number;
@@ -36,7 +37,7 @@ export type AutonomousEvent =
   | { type: "complete"; totalTurns: number; reason: string }
   | { type: "error"; message: string; turnNumber: number };
 
-// Active autonomous sessions (in-memory state)
+// Active autonomous sessions (in-memory state, runtime="nodejs")
 const activeSessions = new Map<string, {
   running: boolean;
   turnCount: number;
@@ -62,12 +63,16 @@ export function getAutonomousState(sessionId: string) {
 /**
  * Run the autonomous conversation loop.
  * Calls onEvent for each turn so the caller can stream results.
+ *
+ * @param userId - Authenticated user ID for ownership scoping
  */
 export async function runAutonomousLoop(
   sessionId: string,
+  userId: string,
   config: Partial<AutonomousConfig>,
   onEvent: AutonomousEventCallback
 ): Promise<void> {
+  // Synchronous guard: set running before any async work to prevent TOCTOU race
   if (activeSessions.get(sessionId)?.running) {
     onEvent({ type: "error", message: "Autonomous loop already running", turnNumber: 0 });
     return;
@@ -82,11 +87,12 @@ export async function runAutonomousLoop(
   const supabase = createAdminClient();
 
   try {
-    // Fetch session
+    // Fetch session with ownership check (even though admin client bypasses RLS)
     const { data: session } = await supabase
       .from("sessions")
       .select("*")
       .eq("id", sessionId)
+      .eq("user_id", userId)
       .single();
 
     if (!session) {
@@ -100,11 +106,12 @@ export async function runAutonomousLoop(
       return;
     }
 
-    // Fetch characters
+    // Fetch characters (scoped to owner)
     const { data: characters } = await supabase
       .from("characters")
       .select("*")
-      .in("id", charIds);
+      .in("id", charIds)
+      .eq("owner_id", userId);
 
     if (!characters || characters.length < 2) {
       onEvent({ type: "error", message: "Could not load characters", turnNumber: 0 });
@@ -178,7 +185,6 @@ export async function runAutonomousLoop(
         const lastText = conversationHistory[conversationHistory.length - 1].text;
         const chainTarget = detectChainTarget(lastText, lastSpeakerId, characters);
         if (chainTarget) {
-          // Override with chain target for more natural flow
           Object.assign(nextSpeaker, chainTarget);
         }
       }
@@ -187,14 +193,12 @@ export async function runAutonomousLoop(
 
       // Build context for this character
       const recentForContext = conversationHistory.slice(-20);
-      const castAwareness = buildCastAwareness(nextSpeaker, characters);
 
       const instructions = buildContextEnvelope({
         character: nextSpeaker,
         allCharacters: characters,
         userName,
         scenarioText,
-        castAwareness,
         stmSummary: session.stm_summary,
         recentTurns: recentForContext,
       });
@@ -235,8 +239,8 @@ export async function runAutonomousLoop(
         });
 
         if (!res.ok) {
-          const errBody = await res.text();
-          onEvent({ type: "error", message: `Grok API error: ${res.status} ${errBody}`, turnNumber: turn });
+          console.error(`Grok API error: ${res.status}`, await res.text());
+          onEvent({ type: "error", message: `Grok API returned ${res.status}`, turnNumber: turn });
           continue;
         }
 
@@ -247,7 +251,8 @@ export async function runAutonomousLoop(
           onEvent({ type: "complete", totalTurns: turn - 1, reason: "stopped" });
           return;
         }
-        onEvent({ type: "error", message: `API call failed: ${err}`, turnNumber: turn });
+        console.error("Autonomous API call failed:", err);
+        onEvent({ type: "error", message: "API call failed", turnNumber: turn });
         continue;
       }
 
@@ -257,10 +262,11 @@ export async function runAutonomousLoop(
       }
 
       // Strip the character prefix if present (we track speaker separately)
+      // Handles: "Name: text", "[Name]: text", "**Name:** text"
       let cleanText = responseText;
-      const prefixMatch = responseText.match(/^(?:\[?(\w[\w\s]*?)\]?:\s*|(?:\*\*(\w[\w\s]*?)\*\*:\s*))(.[\s\S]+)/);
+      const prefixMatch = responseText.match(/^(?:(\w[\w\s]*?):\s+|\[?(\w[\w\s]*?)\]?:\s*|(?:\*\*(\w[\w\s]*?)\*\*:\s*))(.[\s\S]+)/);
       if (prefixMatch) {
-        cleanText = (prefixMatch[3] || responseText).trim();
+        cleanText = (prefixMatch[4] || responseText).trim();
       }
 
       // Persist turn
@@ -270,8 +276,11 @@ export async function runAutonomousLoop(
         text: cleanText,
       });
 
-      // Track in conversation history
+      // Track in conversation history (bounded)
       conversationHistory.push({ speaker: nextSpeaker.id, text: cleanText });
+      if (conversationHistory.length > MAX_CONVERSATION_HISTORY) {
+        conversationHistory.splice(0, conversationHistory.length - MAX_CONVERSATION_HISTORY);
+      }
       lastSpeakerId = nextSpeaker.id;
 
       // Update state
@@ -296,9 +305,9 @@ export async function runAutonomousLoop(
 
     onEvent({ type: "complete", totalTurns: maxTurns, reason: "max_turns_reached" });
   } catch (err) {
-    onEvent({ type: "error", message: `Loop error: ${err}`, turnNumber: 0 });
+    console.error("Autonomous loop error:", err);
+    onEvent({ type: "error", message: "Loop encountered an error", turnNumber: 0 });
   } finally {
-    const state = activeSessions.get(sessionId);
-    if (state) state.running = false;
+    activeSessions.delete(sessionId);
   }
 }

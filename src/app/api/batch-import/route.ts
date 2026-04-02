@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 import { validateBatchPayload } from "@/lib/batch-schema";
 
 /**
@@ -14,6 +15,19 @@ export async function POST(request: Request) {
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Rate limit: max 10 batch imports per hour
+  const limit = checkRateLimit({
+    key: `batch-import:${user.id}`,
+    maxRequests: 10,
+    windowMs: 60 * 60 * 1000,
+  });
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded. Try again later." },
+      { status: 429 }
+    );
   }
 
   let body: unknown;
@@ -57,8 +71,9 @@ export async function POST(request: Request) {
     .select("id, name");
 
   if (charError || !createdChars) {
+    console.error("Batch import character error:", charError?.message);
     return NextResponse.json(
-      { error: `Failed to create characters: ${charError?.message}` },
+      { error: "Failed to create characters" },
       { status: 500 }
     );
   }
@@ -81,8 +96,9 @@ export async function POST(request: Request) {
     .single();
 
   if (scenarioError || !createdScenario) {
+    console.error("Batch import scenario error:", scenarioError?.message);
     return NextResponse.json(
-      { error: `Failed to create scenario: ${scenarioError?.message}` },
+      { error: "Failed to create scenario" },
       { status: 500 }
     );
   }

@@ -44,6 +44,19 @@ export interface BatchValidationError {
 
 const VALID_VOICES = ["ara", "rex", "sal", "eve", "leo"];
 const VALID_RATINGS = ["sfw", "mature"];
+const MAX_CHARACTERS = 20;
+const MAX_NAME_LEN = 200;
+const MAX_BIO_LEN = 5000;
+const MAX_PERSONALITY_LEN = 10000;
+const MAX_SCENARIO_LEN = 10000;
+const MAX_TITLE_LEN = 200;
+const MAX_DESCRIPTION_LEN = 10000;
+
+function checkStringLength(value: unknown, field: string, maxLen: number, errors: BatchValidationError[], path: string) {
+  if (typeof value === "string" && value.length > maxLen) {
+    errors.push({ path: `${path}.${field}`, message: `${field} exceeds max length of ${maxLen}` });
+  }
+}
 
 export function validateBatchPayload(data: unknown): {
   valid: boolean;
@@ -68,6 +81,8 @@ export function validateBatchPayload(data: unknown): {
     errors.push({ path: "characters", message: "characters must be an array" });
   } else if (obj.characters.length === 0) {
     errors.push({ path: "characters", message: "At least one character required" });
+  } else if (obj.characters.length > MAX_CHARACTERS) {
+    errors.push({ path: "characters", message: `Maximum ${MAX_CHARACTERS} characters per batch` });
   } else {
     for (let i = 0; i < obj.characters.length; i++) {
       const c = obj.characters[i] as Record<string, unknown>;
@@ -86,10 +101,19 @@ export function validateBatchPayload(data: unknown): {
       if (!c.personality || typeof c.personality !== "string") {
         errors.push({ path: `${p}.personality`, message: "personality is required (string)" });
       }
-      if (c.voice_id && !VALID_VOICES.includes(c.voice_id as string)) {
+
+      // Length limits
+      checkStringLength(c.name, "name", MAX_NAME_LEN, errors, p);
+      checkStringLength(c.bio, "bio", MAX_BIO_LEN, errors, p);
+      checkStringLength(c.personality, "personality", MAX_PERSONALITY_LEN, errors, p);
+      checkStringLength(c.scenario, "scenario", MAX_SCENARIO_LEN, errors, p);
+      checkStringLength(c.initial_message, "initial_message", MAX_BIO_LEN, errors, p);
+      checkStringLength(c.chat_name, "chat_name", MAX_NAME_LEN, errors, p);
+
+      if (c.voice_id !== undefined && !VALID_VOICES.includes(c.voice_id as string)) {
         errors.push({ path: `${p}.voice_id`, message: `voice_id must be one of: ${VALID_VOICES.join(", ")}` });
       }
-      if (c.content_rating && !VALID_RATINGS.includes(c.content_rating as string)) {
+      if (c.content_rating !== undefined && !VALID_RATINGS.includes(c.content_rating as string)) {
         errors.push({ path: `${p}.content_rating`, message: `content_rating must be one of: ${VALID_RATINGS.join(", ")}` });
       }
     }
@@ -106,6 +130,11 @@ export function validateBatchPayload(data: unknown): {
     if (!s.description || typeof s.description !== "string") {
       errors.push({ path: "scenario.description", message: "description is required (string)" });
     }
+
+    checkStringLength(s.title, "title", MAX_TITLE_LEN, errors, "scenario");
+    checkStringLength(s.description, "description", MAX_DESCRIPTION_LEN, errors, "scenario");
+    checkStringLength(s.setting, "setting", MAX_BIO_LEN, errors, "scenario");
+    checkStringLength(s.time_period, "time_period", MAX_NAME_LEN, errors, "scenario");
   }
 
   // Execution config (optional)
