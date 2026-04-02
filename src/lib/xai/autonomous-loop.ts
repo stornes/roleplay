@@ -199,6 +199,7 @@ export async function runAutonomousLoop(
         allCharacters: characters,
         userName,
         scenarioText,
+        advancedPrompt: session.advanced_prompt,
         stmSummary: session.stm_summary,
         recentTurns: recentForContext,
       });
@@ -213,9 +214,10 @@ export async function runAutonomousLoop(
         return `${name}: ${t.text}`;
       }).join("\n");
 
+      const hasBriefing = !!session.advanced_prompt;
       const turnPrompt = conversationHistory.length === 0
-        ? `You are starting a new conversation in this scenario. Introduce yourself and set the scene. Remember: prefix your response with "${speakerName}: ".`
-        : `Continue the conversation as ${speakerName}. Here's what was just said:\n${lastFewTurns}\n\nRespond naturally as ${speakerName}. Prefix with "${speakerName}: ". Keep it to 1-3 sentences.`;
+        ? `You are starting this session as ${speakerName}. ${hasBriefing ? "Review the case briefing in the AUTHOR DIRECTION section above. Open by framing the key question or insight from your area of expertise." : "Introduce yourself and set the scene."} Prefix your response with "${speakerName}: ".`
+        : `Continue the conversation as ${speakerName}. Here's what was just said:\n${lastFewTurns}\n\n${hasBriefing ? "Stay focused on the case briefing. Build on what others said, challenge assumptions, or add your domain perspective. Reference specific facts from the briefing." : "Respond naturally."} Prefix with "${speakerName}: ". Keep it to 2-4 sentences.`;
 
       // Call Grok-3 text API
       let responseText: string;

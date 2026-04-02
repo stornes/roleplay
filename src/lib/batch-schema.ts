@@ -34,6 +34,7 @@ export interface BatchPayload {
   version: 1;
   characters: BatchCharacter[];
   scenario: BatchScenario;
+  briefing?: string;
   execution?: BatchExecutionConfig;
 }
 
@@ -135,6 +136,15 @@ export function validateBatchPayload(data: unknown): {
     checkStringLength(s.description, "description", MAX_DESCRIPTION_LEN, errors, "scenario");
     checkStringLength(s.setting, "setting", MAX_BIO_LEN, errors, "scenario");
     checkStringLength(s.time_period, "time_period", MAX_NAME_LEN, errors, "scenario");
+  }
+
+  // Briefing (optional, injected as case context for all agents)
+  if (obj.briefing !== undefined) {
+    if (typeof obj.briefing !== "string") {
+      errors.push({ path: "briefing", message: "briefing must be a string" });
+    } else if (obj.briefing.length > 20000) {
+      errors.push({ path: "briefing", message: "briefing exceeds max length of 20000" });
+    }
   }
 
   // Execution config (optional)
