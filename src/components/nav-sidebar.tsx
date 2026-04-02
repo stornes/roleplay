@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Globe, Users, UserCircle, BookOpen, Wand2, MessageSquare, Brain, Upload, Settings, LogOut, Menu, X } from "lucide-react";
+import { Globe, Users, UserCircle, BookOpen, Wand2, MessageSquare, Brain, Upload, PackagePlus, Settings, LogOut, Menu, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,7 @@ const navItems = [
   { href: "/sessions", label: "Sessions", icon: MessageSquare },
   { href: "/memories", label: "Memories", icon: Brain },
   { href: "/import", label: "Import", icon: Upload },
+  { href: "/batch-import", label: "Batch Import", icon: PackagePlus },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

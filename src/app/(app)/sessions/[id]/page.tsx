@@ -6,6 +6,7 @@ import { useVoiceSession } from "@/hooks/use-voice-session";
 import { SessionPanel } from "@/components/session-panel";
 import { VoiceControls } from "@/components/voice-controls";
 import { ArrowLeft, Square, MessageSquare } from "lucide-react";
+import { AutonomousControls } from "@/components/autonomous-controls";
 import type { Message, CastMember } from "@/hooks/use-voice-session";
 
 export default function LiveSessionPage() {
@@ -15,6 +16,7 @@ export default function LiveSessionPage() {
   const [initialMessage, setInitialMessage] = useState<Message | null>(null);
   const [loadedCharacterName, setLoadedCharacterName] = useState("");
   const [loadedCast, setLoadedCast] = useState<CastMember[]>([]);
+  const [autonomousMessages, setAutonomousMessages] = useState<Message[]>([]);
 
   // Fetch session context on mount
   useEffect(() => {
@@ -69,11 +71,26 @@ export default function LiveSessionPage() {
   const displayCast = cast.length > 0 ? cast : loadedCast;
   const isMultiCharacter = displayCast.length > 1;
 
-  const allMessages = initialMessage && messages.length === 0
+  const voiceMessages = initialMessage && messages.length === 0
     ? [initialMessage]
     : initialMessage && messages[0]?.id !== initialMessage.id
       ? [initialMessage, ...messages]
       : messages;
+
+  const allMessages = [...voiceMessages, ...autonomousMessages];
+
+  const handleAutonomousTurn = useCallback((turn: { turnNumber: number; speakerName: string; speakerId: string; text: string; timestamp: string }) => {
+    setAutonomousMessages((prev) => [
+      ...prev,
+      {
+        id: `auto-${turn.turnNumber}-${Date.now()}`,
+        role: "assistant" as const,
+        text: turn.text,
+        speakerName: turn.speakerName,
+        speakerId: turn.speakerId,
+      },
+    ]);
+  }, []);
 
   const handleEndSession = async () => {
     disconnect();
@@ -151,6 +168,13 @@ export default function LiveSessionPage() {
         messages={allMessages}
         characterName={displayName}
         isMultiCharacter={isMultiCharacter}
+      />
+
+      {/* Autonomous controls */}
+      <AutonomousControls
+        sessionId={sessionId}
+        isMultiCharacter={isMultiCharacter}
+        onTurn={handleAutonomousTurn}
       />
 
       {/* Voice controls + text input */}
