@@ -30,7 +30,7 @@ export async function POST(
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  const { text, currentSpeakerId } = await request.json();
+  const { text } = await request.json();
 
   if (!text) {
     return NextResponse.json({ error: "text required" }, { status: 400 });
@@ -38,7 +38,6 @@ export async function POST(
 
   const characterIds = session.active_character_ids;
   if (!characterIds || characterIds.length <= 1) {
-    // Single character, no routing needed
     return NextResponse.json({
       nextSpeakerId: characterIds?.[0] || null,
       switchRequired: false,
@@ -55,16 +54,28 @@ export async function POST(
     return NextResponse.json({ error: "Characters not found" }, { status: 404 });
   }
 
+  // Determine last speaker from the most recent assistant turn (server is authoritative)
+  const { data: lastTurn } = await supabase
+    .from("turns")
+    .select("speaker")
+    .eq("session_id", sessionId)
+    .neq("speaker", "user")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  const lastSpeakerId = lastTurn?.speaker || null;
+
   // Use the server-side turn router
   const nextSpeaker = selectNextSpeaker({
     characters,
-    lastSpeakerId: currentSpeakerId || null,
+    lastSpeakerId,
     userText: text,
   });
 
   return NextResponse.json({
     nextSpeakerId: nextSpeaker.id,
     nextSpeakerName: nextSpeaker.chat_name || nextSpeaker.name,
-    switchRequired: nextSpeaker.id !== currentSpeakerId,
+    switchRequired: nextSpeaker.id !== lastSpeakerId,
   });
 }
