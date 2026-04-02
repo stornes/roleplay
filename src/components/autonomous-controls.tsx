@@ -87,6 +87,13 @@ export function AutonomousControls({
     };
   }, [sessionId, onTurn, onComplete, updateRunning]);
 
+  // Clean up EventSource on unmount
+  useEffect(() => {
+    return () => {
+      eventSourceRef.current?.close();
+    };
+  }, []);
+
   // Load existing briefing from session on mount
   useEffect(() => {
     fetch(`/api/session/${sessionId}/briefing`)
@@ -98,10 +105,6 @@ export function AutonomousControls({
         }
       })
       .catch(() => {});
-
-    return () => {
-      eventSourceRef.current?.close();
-    };
   }, [sessionId]);
 
   // Save briefing to the session's advanced_prompt before starting
