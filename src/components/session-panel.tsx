@@ -15,11 +15,11 @@ interface SessionPanelProps {
  * Returns { name, text } if found, otherwise null.
  */
 function parseCharacterPrefix(text: string): { name: string; text: string } | null {
-  // Match patterns: "Greg: ...", "[Greg]: ...", "**Greg:** ...", "Greg. ..."
-  const match = text.match(/^(?:\[?(\w[\w\s]*?)\]?:\s*|(?:\*\*(\w[\w\s]*?)\*\*:\s*)|(\w[\w\s]*?)\.\s\s*)(.[\s\S]+)/);
+  // Match patterns: "Greg: ...", "[Greg]: ...", "**Greg:** ..."
+  const match = text.match(/^(?:\[?(\w[\w\s]*?)\]?:\s*|(?:\*\*(\w[\w\s]*?)\*\*:\s*))(.[\s\S]+)/);
   if (match) {
-    const name = (match[1] || match[2] || match[3])?.trim();
-    const rest = (match[4])?.trim();
+    const name = (match[1] || match[2])?.trim();
+    const rest = (match[3])?.trim();
     if (name && rest) return { name, text: rest };
   }
   return null;
