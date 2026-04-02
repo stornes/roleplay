@@ -17,6 +17,7 @@ export default function LiveSessionPage() {
   const [loadedCharacterName, setLoadedCharacterName] = useState("");
   const [loadedCast, setLoadedCast] = useState<CastMember[]>([]);
   const [autonomousMessages, setAutonomousMessages] = useState<Message[]>([]);
+  const [autonomousRunning, setAutonomousRunning] = useState(false);
 
   // Fetch session context on mount
   useEffect(() => {
@@ -139,7 +140,7 @@ export default function LiveSessionPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {isMultiCharacter && (
+          {isMultiCharacter && !autonomousRunning && (
             <button
               onClick={toggleAutoChain}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors ${
@@ -170,21 +171,26 @@ export default function LiveSessionPage() {
         isMultiCharacter={isMultiCharacter}
       />
 
-      {/* Autonomous controls */}
-      <AutonomousControls
-        sessionId={sessionId}
-        isMultiCharacter={isMultiCharacter}
-        onTurn={handleAutonomousTurn}
-      />
+      {/* Autonomous controls (multi-character only) */}
+      {isMultiCharacter && (
+        <AutonomousControls
+          sessionId={sessionId}
+          isMultiCharacter={isMultiCharacter}
+          onTurn={handleAutonomousTurn}
+          onRunningChange={setAutonomousRunning}
+        />
+      )}
 
-      {/* Voice controls + text input */}
-      <VoiceControls
-        status={status}
-        onConnect={connect}
-        onDisconnect={disconnect}
-        onSendText={sendText}
-        error={error}
-      />
+      {/* Voice controls (hidden during autonomous run) */}
+      {!isMultiCharacter && (
+        <VoiceControls
+          status={status}
+          onConnect={connect}
+          onDisconnect={disconnect}
+          onSendText={sendText}
+          error={error}
+        />
+      )}
     </div>
   );
 }
