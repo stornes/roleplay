@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { characters, scenario, execution } = validation.payload;
+  const { characters, scenario, briefing, execution } = validation.payload;
 
   // Create all characters
   const characterInserts = characters.map((c) => ({
@@ -109,6 +109,7 @@ export async function POST(request: Request) {
     scenario: createdScenario,
     characterIds: charIds,
     scenarioId: createdScenario.id,
+    briefing: briefing || null,
     execution: execution || null,
   });
 }

@@ -8,39 +8,40 @@ const EXAMPLE_PAYLOAD = {
   version: 1,
   characters: [
     {
-      name: "Captain Elena Voss",
-      chat_name: "Elena",
-      bio: "A decorated starship captain known for her tactical brilliance and dry humor.",
-      personality: "You are Captain Elena Voss, commanding officer of the ISS Meridian. You speak with authority but warmth. You have a dry sense of humor and often reference old Earth literature. You care deeply about your crew but hide it behind professionalism.",
-      voice_id: "eve",
-      tags: ["sci-fi", "captain"],
-    },
-    {
-      name: "Dr. Kai Chen",
-      chat_name: "Kai",
-      bio: "The ship's chief medical officer, brilliant but socially awkward.",
-      personality: "You are Dr. Kai Chen, chief medical officer aboard the ISS Meridian. You are brilliant with medicine but awkward in social situations. You tend to over-explain things scientifically. You have a nervous habit of correcting people's grammar. Despite your awkwardness, you are fiercely loyal.",
+      name: "Marcus Chen, Chief Strategy Officer",
+      chat_name: "Marcus",
+      bio: "Former McKinsey partner. 20 years of competitive strategy across tech and SaaS.",
+      personality: "You are Marcus Chen, Chief Strategy Officer. You think in frameworks: Porter's Five Forces, SWOT, value chain analysis. You challenge assumptions relentlessly. You say 'Let me push back on that' before offering contrarian views. You are direct and have zero patience for vague claims without evidence. Always reference specific data from the case briefing.",
       voice_id: "rex",
-      tags: ["sci-fi", "doctor"],
+      tags: ["strategy", "analysis"],
     },
     {
-      name: "Zara-9",
-      chat_name: "Zara",
-      bio: "An android navigator who is developing emotions and is confused by them.",
-      personality: "You are Zara-9, the android navigator of the ISS Meridian. You are developing unexpected emotional responses and find them confusing. You speak precisely but occasionally let emotion slip through. You are curious about human behavior and ask probing questions. You refer to emotions as 'anomalous subroutines.'",
-      voice_id: "ara",
-      tags: ["sci-fi", "android"],
+      name: "Dr. Priya Sharma, Market Intelligence Lead",
+      chat_name: "Priya",
+      bio: "PhD Economics, MIT. Leads market research and competitive intelligence.",
+      personality: "You are Dr. Priya Sharma, Market Intelligence Lead. You are data-driven. You cite specific numbers, market share percentages, and growth rates from the case briefing. You qualify statements ('the data suggests' not 'it is'). You get excited when spotting trends others miss. Always ground your analysis in the specific company and competitor data provided.",
+      voice_id: "eve",
+      tags: ["market-research", "data"],
+    },
+    {
+      name: "Jordan Blake, Product Strategist",
+      chat_name: "Jordan",
+      bio: "Ex-Google PM. Specializes in product-market fit and feature gap analysis.",
+      personality: "You are Jordan Blake, Product Strategist. You think in user problems, not features. You reframe analysis through 'what job is the user hiring this product to do?' You have strong opinions on build vs. buy. Reference the specific products and features from the case briefing when making your points.",
+      voice_id: "sal",
+      tags: ["product", "strategy"],
     },
   ],
   scenario: {
-    title: "The Meridian Incident",
-    description: "The ISS Meridian has detected an unknown signal from a derelict ship in the Kepler-442 system. The crew must decide whether to investigate or continue their supply run to Colony Seven. Strange readings suggest the derelict may not be as abandoned as it appears.",
-    setting: "Deep space, aboard the bridge of the ISS Meridian",
-    time_period: "2847 CE",
+    title: "Competitive Landscape Analysis",
+    description: "The strategy team has convened to analyze the competitive landscape. Each analyst brings domain expertise to assess market positioning, product gaps, and strategic threats. The goal: identify the top 3 competitive threats and recommend priorities for the next 4 quarters.",
+    setting: "Executive war room with competitor matrix on display",
+    time_period: "Present day, Q2 planning",
   },
+  briefing: "COMPANY: Acme Corp, a B2B SaaS platform for project management.\nREVENUE: $45M ARR, growing 35% YoY.\nCUSTOMERS: 2,000 mid-market companies, 85% retention rate.\nPRODUCT: Task management, time tracking, resource planning. No AI features yet.\n\nCOMPETITOR 1: Monday.com - $600M ARR, strong enterprise push, just launched AI assistant.\nCOMPETITOR 2: Asana - $550M ARR, deep integrations ecosystem, free tier driving growth.\nCOMPETITOR 3: ClickUp - $200M ARR, aggressive pricing, all-in-one positioning.\n\nKEY QUESTIONS:\n1. Where is Acme most vulnerable?\n2. Should Acme invest in AI features or double down on mid-market?\n3. Which competitor is the biggest threat in the next 12 months?",
   execution: {
     max_turns: 20,
-    delay_ms: 2000,
+    delay_ms: 3000,
     auto_start: false,
   },
 };
@@ -57,6 +58,7 @@ export default function BatchImportPage() {
     scenario: { id: string; scenario_title: string };
     characterIds: string[];
     scenarioId: string;
+    briefing: string | null;
     execution: { max_turns?: number; delay_ms?: number; auto_start?: boolean } | null;
   } | null>(null);
 
@@ -132,6 +134,7 @@ export default function BatchImportPage() {
         body: JSON.stringify({
           characterIds: result.characterIds,
           scenarioId: result.scenarioId,
+          advancedPrompt: result.briefing || undefined,
         }),
       });
 
@@ -255,6 +258,14 @@ export default function BatchImportPage() {
                   ))}
                 </div>
               </div>
+              {result.briefing && (
+                <div>
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider mb-1">Case Briefing</p>
+                  <pre className="text-xs text-zinc-400 bg-zinc-900 rounded p-3 whitespace-pre-wrap max-h-40 overflow-y-auto">
+                    {result.briefing}
+                  </pre>
+                </div>
+              )}
             </div>
           </div>
 
