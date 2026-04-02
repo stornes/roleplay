@@ -4,7 +4,7 @@ import { detectAddressedCharacter, selectNextSpeaker } from "@/lib/xai/turn-rout
 
 /**
  * Phase 1 Hybrid: Server-side turn routing.
- * Client sends user text + current speaker, server decides who responds next.
+ * Client sends user text, server determines last speaker from DB and decides who responds next.
  */
 export async function POST(
   request: Request,
