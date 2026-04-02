@@ -87,11 +87,22 @@ export function AutonomousControls({
     };
   }, [sessionId, onTurn, onComplete, updateRunning]);
 
+  // Load existing briefing from session on mount
   useEffect(() => {
+    fetch(`/api/session/${sessionId}/briefing`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.briefing) {
+          setBriefing(data.briefing);
+          setBriefingSaved(true);
+        }
+      })
+      .catch(() => {});
+
     return () => {
       eventSourceRef.current?.close();
     };
-  }, []);
+  }, [sessionId]);
 
   // Save briefing to the session's advanced_prompt before starting
   const saveBriefing = async () => {
